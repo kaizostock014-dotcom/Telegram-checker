@@ -5,6 +5,7 @@ import requests
 from flask import Flask, request
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "telegram-secret")
 PUBLIC_URL = os.environ["RENDER_EXTERNAL_URL"]
 
@@ -207,6 +208,7 @@ tarjetas reales.""",
     message = update["message"]
     chat_id = message["chat"]["id"]
     text = message.get("text", "").strip()
+    sender_id = message.get("from", {}).get("id", 0)
 
     user = get_user(message["from"])
 if text.startswith("/addcredit"):
