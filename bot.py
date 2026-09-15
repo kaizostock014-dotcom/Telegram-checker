@@ -11,7 +11,7 @@ from flask import Flask, request
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
-
+DIAMOND_ID = ADMIN_ID
 PORT = int(os.environ.get("PORT", "10000"))
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
