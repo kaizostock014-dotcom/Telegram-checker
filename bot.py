@@ -1,12 +1,15 @@
-import asyncio
 import os
 import sqlite3
 
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, Update
 
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.environ["BOT_TOKEN"]
+PORT = int(os.getenv("PORT", "10000"))
+WEBHOOK_SECRET = os.environ["WEBHOOK_SECRET"]
+PUBLIC_URL = os.environ["RENDER_EXTERNAL_URL"]
 
 bot = Bot(TOKEN)
 dp = Dispatcher()
@@ -47,8 +50,8 @@ async def start(message: Message):
     )
 
     await message.answer(
-        "⚡ Kaori Test Checker\n\n"
-        "👋 Bienvenido\n\n"
+        "⚡ TEST CHECKER\n\n"
+        "👋 Bienvenido.\n\n"
         "Usa /me para ver tu información.\n"
         "Usa /check para realizar una prueba en sandbox."
     )
@@ -96,13 +99,57 @@ async def check(message: Message):
         "🧪 TEST CHECK\n\n"
         "✅ Prueba procesada en modo sandbox.\n"
         "💳 Se utilizó 1 crédito.\n\n"
-        "⚠️ Este bot no comprueba tarjetas reales."
+        "⚠️ Este bot NO comprueba tarjetas reales."
     )
 
 
-async def main():
-    await dp.start_polling(bot)
+async def webhook(request):
+    if request.headers.get(
+        "X-Telegram-Bot-Api-Secret-Token"
+    ) != WEBHOOK_SECRET:
+        return web.Response(status=403)
+
+    data = await request.json()
+    update = Update.model_validate(
+        data,
+        context={"bot": bot}
+    )
+
+    await dp.feed_update(bot, update)
+
+    return web.Response(text="ok")
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+async def health(request):
+    return web.Response(text="OK")
+
+
+async def on_startup(app):
+    await bot.set_webhook(
+        url=f"{PUBLIC_URL}/telegram/{WEBHOOK_SECRET}",
+        secret_token=WEBHOOK_SECRET,
+        drop_pending_updates=True
+    )
+
+
+async def on_cleanup(app):
+    await bot.delete_webhook()
+    await bot.session.close()
+
+
+app = web.Application()
+
+app.router.add_get("/", health)
+app.router.add_post(
+    f"/telegram/{WEBHOOK_SECRET}",
+    webhook
+)
+
+app.on_startup.append(on_startup)
+app.on_cleanup.append(on_cleanup)
+
+web.run_app(
+    app,
+    host="0.0.0.0",
+    port=PORT
+)
