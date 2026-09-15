@@ -1,21 +1,33 @@
 import os
 import time
 import sqlite3
+import threading
 import requests
 from flask import Flask, request
 
+# =========================
+# CONFIGURACIÓN
+# =========================
+
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "telegram-secret")
-PUBLIC_URL = os.environ["RENDER_EXTERNAL_URL"]
 
-app = Flask(__name__)
+PORT = int(os.environ.get("PORT", "10000"))
+
+API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 DB = "bot.db"
 
+app = Flask(__name__)
+
+
+# =========================
+# BASE DE DATOS
+# =========================
 
 def db():
     conn = sqlite3.connect(DB)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY,
@@ -24,15 +36,59 @@ def db():
             plan TEXT DEFAULT 'FREE'
         )
     """)
+
     conn.commit()
     return conn
+
+
+def get_user(user_id, username=""):
+    conn = db()
+
+    row = conn.execute(
+        "SELECT id, username, credits, plan FROM users WHERE id = ?",
+        (user_id,)
+    ).fetchone()
+
+    if not row:
+        conn.execute(
+            """
+            INSERT INTO users (id, username, credits, plan)
+            VALUES (?, ?, 5, 'FREE')
+            """,
+            (user_id, username)
+        )
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT id, username, credits, plan FROM users WHERE id = ?",
+            (user_id,)
+        ).fetchone()
+
+    conn.close()
+    return row
+
+
+# =========================
+# TELEGRAM
+# =========================
+
+def telegram(method, data=None):
+    try:
+        response = requests.post(
+            f"{API}/{method}",
+            json=data or {},
+            timeout=40
+        )
+        return response.json()
+    except Exception as e:
+        print("Telegram error:", e)
+        return {}
 
 
 def send_message(chat_id, text, keyboard=None):
     data = {
         "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML"
+        "text": text
     }
 
     if keyboard:
@@ -40,205 +96,228 @@ def send_message(chat_id, text, keyboard=None):
             "inline_keyboard": keyboard
         }
 
-    requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json=data,
-        timeout=15
-    )
+    return telegram("sendMessage", data)
 
 
 def edit_message(chat_id, message_id, text):
-    requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
-        json={
+    return telegram(
+        "editMessageText",
+        {
             "chat_id": chat_id,
             "message_id": message_id,
-            "text": text,
-            "parse_mode": "HTML"
-        },
-        timeout=15
+            "text": text
+        }
     )
 
 
 def answer_callback(callback_id):
-    requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
-        json={"callback_query_id": callback_id},
-        timeout=15
+    telegram(
+        "answerCallbackQuery",
+        {
+            "callback_query_id": callback_id
+        }
     )
 
 
-def get_user(user):
-    conn = db()
-    row = conn.execute(
-        "SELECT id, username, credits, plan FROM users WHERE id=?",
-        (user["id"],)
-    ).fetchone()
+# =========================
+# MENÚ
+# =========================
 
-    if not row:
-        conn.execute(
-            "INSERT INTO users (id, username) VALUES (?, ?)",
-            (user["id"], user.get("username", ""))
-        )
-        conn.commit()
-        row = (
-            user["id"],
-            user.get("username", ""),
-            5,
-            "FREE"
-        )
-
-    conn.close()
-    return row
-
-
-def main_menu():
+def menu():
     return [
         [
-            {"text": "🔎 Check Sandbox", "callback_data": "check"},
-            {"text": "👤 Mi cuenta", "callback_data": "account"}
+            {
+                "text": "🔎 Check Sandbox",
+                "callback_data": "check"
+            },
+            {
+                "text": "👤 Mi cuenta",
+                "callback_data": "account"
+            }
         ],
         [
-            {"text": "⭐ Premium", "callback_data": "premium"},
-            {"text": "💳 Créditos", "callback_data": "credits"}
+            {
+                "text": "⭐ Premium",
+                "callback_data": "premium"
+            },
+            {
+                "text": "💳 Créditos",
+                "callback_data": "credits"
+            }
         ]
     ]
 
 
-def process_update(update):
-    if "callback_query" in update:
-        cb = update["callback_query"]
-        chat_id = cb["message"]["chat"]["id"]
-        message_id = cb["message"]["message_id"]
-        data = cb["data"]
+# =========================
+# CUENTA
+# =========================
 
-        answer_callback(cb["id"])
+def account(chat_id, user_id, username):
+    user = get_user(user_id, username)
 
-        user = get_user(cb["from"])
+    plan = user[3]
+    credits = user[2]
 
-        if data == "account":
-            send_message(
-                chat_id,
-                f"""👤 <b>MI CUENTA</b>
+    send_message(
+        chat_id,
+        "👤 MI CUENTA\n\n"
+        f"🆔 ID: {user_id}\n"
+        f"👤 Usuario: @{username if username else 'sin_username'}\n"
+        f"💳 Créditos: {credits}\n"
+        f"⭐ Plan: {plan}",
+        menu()
+    )
 
-🆔 ID: <code>{user[0]}</code>
-👤 Usuario: @{user[1] or 'sin_username'}
-💎 Plan: <b>{user[3]}</b>
-💰 Créditos: <b>{user[2]}</b>""",
-                main_menu()
-            )
 
-        elif data == "credits":
-            send_message(
-                chat_id,
-                f"""💳 <b>TUS CRÉDITOS</b>
+# =========================
+# CRÉDITOS
+# =========================
 
-💰 Disponibles: <b>{user[2]}</b>
+def credits(chat_id, user_id, username):
+    user = get_user(user_id, username)
 
-Los créditos se utilizan únicamente
-para las funciones de <b>Sandbox</b>.""",
-                main_menu()
-            )
+    send_message(
+        chat_id,
+        "💳 TUS CRÉDITOS\n\n"
+        f"💰 Disponibles: {user[2]}\n\n"
+        "Los créditos se utilizan únicamente "
+        "para las funciones de Sandbox.",
+        menu()
+    )
 
-        elif data == "premium":
-            send_message(
-                chat_id,
-                """⭐ <b>PREMIUM</b>
 
-🔥 Más créditos
-⚡ Interfaz Premium
-🎯 Funciones Sandbox adicionales
+# =========================
+# PREMIUM
+# =========================
 
-Esta versión no procesa ni valida
-tarjetas reales.""",
-                main_menu()
-            )
+def premium(chat_id):
+    send_message(
+        chat_id,
+        "⭐ PREMIUM\n\n"
+        "🔥 Más créditos\n"
+        "⚡ Interfaz Premium\n"
+        "🎯 Funciones Sandbox adicionales\n\n"
+        "Esta versión no procesa ni valida tarjetas reales.",
+        menu()
+    )
 
-        elif data == "check":
-            if user[2] <= 0:
-                send_message(
-                    chat_id,
-                    "❌ No tienes créditos disponibles.",
-                    main_menu()
-                )
-                return
 
-            conn = db()
-            conn.execute(
-                "UPDATE users SET credits = credits - 1 WHERE id=?",
-                (user[0],)
-            )
-            conn.commit()
-            conn.close()
+# =========================
+# CHECK SANDBOX
+# =========================
 
-            msg = requests.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json={
-                    "chat_id": chat_id,
-                    "text": "🔎 <b>Iniciando análisis Sandbox...</b>",
-                    "parse_mode": "HTML"
-                },
-                timeout=15
-            ).json()
+def sandbox_check(chat_id, user_id, username):
+    user = get_user(user_id, username)
 
-            mid = msg["result"]["message_id"]
-
-            steps = [
-                "🔎 <b>Iniciando análisis Sandbox...</b>",
-                "🔄 <b>Consultando datos de prueba...</b>",
-                "📡 <b>Procesando información Sandbox...</b>",
-                "🧩 <b>Analizando resultado...</b>",
-                "✅ <b>ANÁLISIS SANDBOX COMPLETADO</b>\n\n"
-                "🟢 Resultado: <b>TEST</b>\n"
-                "🧪 Modo: <b>Sandbox</b>\n\n"
-                "⚠️ No se procesó ninguna tarjeta real."
-            ]
-
-            for step in steps:
-                edit_message(chat_id, mid, step)
-                time.sleep(1)
-
-            send_message(chat_id, "🏠 Menú principal:", main_menu())
-
-        return
-
-    if "message" not in update:
-        return
-
-    message = update["message"]
-    chat_id = message["chat"]["id"]
-    text = message.get("text", "").strip()
-    sender_id = message.get("from", {}).get("id", 0)
-
-    user = get_user(message["from"])
-if text.startswith("/addcredit"):
-    if sender_id != ADMIN_ID:
-        send_message(chat_id, "⛔ No tienes permiso.")
-        return
-
-    partes = text.split()
-
-    if len(partes) != 3:
-        send_message(chat_id, "❌ Usa: /addcredit ID CANTIDAD")
-        return
-
-    try:
-        usuario_id = int(partes[1])
-        cantidad = int(partes[2])
-    except ValueError:
-        send_message(chat_id, "❌ ID y cantidad deben ser números.")
+    if user[2] <= 0:
+        send_message(
+            chat_id,
+            "❌ No tienes créditos disponibles.\n\n"
+            "Usa la opción 💳 Créditos.",
+            menu()
+        )
         return
 
     conn = db()
 
     conn.execute(
-        "INSERT OR IGNORE INTO users (id, username, credits, plan) VALUES (?, '', 0, 'FREE')",
-        (usuario_id,)
+        "UPDATE users SET credits = credits - 1 WHERE id = ?",
+        (user_id,)
+    )
+
+    conn.commit()
+    conn.close()
+
+    msg = send_message(
+        chat_id,
+        "🔎 CHECK SANDBOX\n\n"
+        "⏳ Iniciando prueba..."
+    )
+
+    message_id = msg.get("result", {}).get("message_id")
+
+    if not message_id:
+        return
+
+    time.sleep(1)
+
+    edit_message(
+        chat_id,
+        message_id,
+        "🔎 CHECK SANDBOX\n\n"
+        "⏳ Ejecutando simulación..."
+    )
+
+    time.sleep(1)
+
+    edit_message(
+        chat_id,
+        message_id,
+        "🔎 CHECK SANDBOX\n\n"
+        "✅ Simulación completada.\n\n"
+        "ℹ️ Resultado de prueba Sandbox.\n"
+        "No se procesó ninguna tarjeta real."
+    )
+
+
+# =========================
+# COMANDOS ADMIN
+# =========================
+
+def admin_add_credit(chat_id, sender_id, text):
+
+    if sender_id != ADMIN_ID:
+        send_message(
+            chat_id,
+            "⛔ No tienes permiso para usar este comando."
+        )
+        return
+
+    parts = text.split()
+
+    if len(parts) != 3:
+        send_message(
+            chat_id,
+            "❌ Formato incorrecto.\n\n"
+            "Usa:\n"
+            "/addcredit ID CANTIDAD\n\n"
+            "Ejemplo:\n"
+            "/addcredit 5320997298 100"
+        )
+        return
+
+    try:
+        target_id = int(parts[1])
+        amount = int(parts[2])
+
+        if amount <= 0:
+            raise ValueError
+
+    except ValueError:
+        send_message(
+            chat_id,
+            "❌ El ID y la cantidad deben ser números positivos."
+        )
+        return
+
+    conn = db()
+
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO users
+        (id, username, credits, plan)
+        VALUES (?, '', 0, 'FREE')
+        """,
+        (target_id,)
     )
 
     conn.execute(
-        "UPDATE users SET credits = credits + ? WHERE id = ?",
-        (cantidad, usuario_id)
+        """
+        UPDATE users
+        SET credits = credits + ?
+        WHERE id = ?
+        """,
+        (amount, target_id)
     )
 
     conn.commit()
@@ -246,86 +325,405 @@ if text.startswith("/addcredit"):
 
     send_message(
         chat_id,
-        f"✅ Se agregaron {cantidad} créditos a {usuario_id}."
+        "✅ CRÉDITOS AGREGADOS\n\n"
+        f"🆔 Usuario: {target_id}\n"
+        f"💳 Créditos añadidos: {amount}"
     )
-    return
+
+
+def admin_premium(chat_id, sender_id, text):
+
+    if sender_id != ADMIN_ID:
+        send_message(
+            chat_id,
+            "⛔ No tienes permiso para usar este comando."
+        )
+        return
+
+    parts = text.split()
+
+    if len(parts) != 2:
+        send_message(
+            chat_id,
+            "❌ Usa:\n\n"
+            "/premiumadd ID"
+        )
+        return
+
+    try:
+        target_id = int(parts[1])
+    except ValueError:
+        send_message(
+            chat_id,
+            "❌ El ID debe ser numérico."
+        )
+        return
+
+    conn = db()
+
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO users
+        (id, username, credits, plan)
+        VALUES (?, '', 0, 'FREE')
+        """,
+        (target_id,)
+    )
+
+    conn.execute(
+        """
+        UPDATE users
+        SET plan = 'PREMIUM'
+        WHERE id = ?
+        """,
+        (target_id,)
+    )
+
+    conn.commit()
+    conn.close()
+
+    send_message(
+        chat_id,
+        "⭐ PREMIUM ACTIVADO\n\n"
+        f"🆔 Usuario: {target_id}\n"
+        "⭐ Plan: PREMIUM"
+    )
+
+
+def admin_premium_off(chat_id, sender_id, text):
+
+    if sender_id != ADMIN_ID:
+        send_message(
+            chat_id,
+            "⛔ No tienes permiso para usar este comando."
+        )
+        return
+
+    parts = text.split()
+
+    if len(parts) != 2:
+        send_message(
+            chat_id,
+            "❌ Usa:\n\n"
+            "/premiumoff ID"
+        )
+        return
+
+    try:
+        target_id = int(parts[1])
+    except ValueError:
+        send_message(
+            chat_id,
+            "❌ El ID debe ser numérico."
+        )
+        return
+
+    conn = db()
+
+    conn.execute(
+        """
+        UPDATE users
+        SET plan = 'FREE'
+        WHERE id = ?
+        """,
+        (target_id,)
+    )
+
+    conn.commit()
+    conn.close()
+
+    send_message(
+        chat_id,
+        f"✅ Premium desactivado para {target_id}."
+    )
+
+
+def admin_help(chat_id, sender_id):
+
+    if sender_id != ADMIN_ID:
+        send_message(
+            chat_id,
+            "⛔ No tienes permiso."
+        )
+        return
+
+    send_message(
+        chat_id,
+        "🛠 ADMIN\n\n"
+        "/addcredit ID CANTIDAD\n"
+        "/premiumadd ID\n"
+        "/premiumoff ID\n\n"
+        "Ejemplos:\n\n"
+        "/addcredit 5320997298 100\n"
+        "/premiumadd 5320997298"
+    )
+
+
+# =========================
+# PROCESAR MENSAJES
+# =========================
+
+def process_update(update):
+
+    # =====================
+    # BOTONES
+    # =====================
+
+    callback = update.get("callback_query")
+
+    if callback:
+
+        answer_callback(callback["id"])
+
+        data = callback.get("data", "")
+        message = callback.get("message", {})
+
+        chat_id = message.get("chat", {}).get("id")
+        user = callback.get("from", {})
+
+        user_id = user.get("id")
+        username = user.get("username", "")
+
+        if data == "check":
+            sandbox_check(
+                chat_id,
+                user_id,
+                username
+            )
+
+        elif data == "account":
+            account(
+                chat_id,
+                user_id,
+                username
+            )
+
+        elif data == "credits":
+            credits(
+                chat_id,
+                user_id,
+                username
+            )
+
+        elif data == "premium":
+            premium(chat_id)
+
+        return
+
+    # =====================
+    # MENSAJE
+    # =====================
+
+    message = update.get("message")
+
+    if not message:
+        return
+
+    chat_id = message.get("chat", {}).get("id")
+
+    sender = message.get("from", {})
+
+    sender_id = sender.get("id", 0)
+    username = sender.get("username", "")
+
+    text = message.get("text", "").strip()
+
+    if not text:
+        return
+
+    # =====================
+    # ADMIN
+    # =====================
+
+    if text.startswith("/addcredit"):
+        admin_add_credit(
+            chat_id,
+            sender_id,
+            text
+        )
+        return
+
+    if text.startswith("/premiumadd"):
+        admin_premium(
+            chat_id,
+            sender_id,
+            text
+        )
+        return
+
+    if text.startswith("/premiumoff"):
+        admin_premium_off(
+            chat_id,
+            sender_id,
+            text
+        )
+        return
+
+    if text.startswith("/admin"):
+        admin_help(
+            chat_id,
+            sender_id
+        )
+        return
+
+    # =====================
+    # START
+    # =====================
+
     if text.startswith("/start"):
-        send_message(
-            chat_id,
-            f"""<b>⚡ BILL CYPHER CHK ⚡</b>
 
-👋 Bienvenido, @{user[1] or 'usuario'}
-
-💎 Plan: <b>{user[3]}</b>
-💰 Créditos: <b>{user[2]}</b>
-
-🔐 Sistema de pruebas Sandbox
-
-Selecciona una opción:""",
-            main_menu()
+        get_user(
+            sender_id,
+            username
         )
 
-    elif text == "/me":
         send_message(
             chat_id,
-            f"""👤 <b>MI CUENTA</b>
-
-🆔 ID: <code>{user[0]}</code>
-👤 Usuario: @{user[1] or 'sin_username'}
-💎 Plan: <b>{user[3]}</b>
-💰 Créditos: <b>{user[2]}</b>""",
-            main_menu()
+            "🤖 BILL CYPHER CHK\n\n"
+            "Bienvenido.\n\n"
+            "Selecciona una opción:",
+            menu()
         )
 
-    elif text == "/check":
-        send_message(
+        return
+
+    # =====================
+    # ME
+    # =====================
+
+    if text.startswith("/me"):
+
+        account(
             chat_id,
-            "👇 Pulsa <b>Check Sandbox</b> para iniciar.",
-            main_menu()
+            sender_id,
+            username
         )
 
-    else:
-        send_message(
+        return
+
+    # =====================
+    # CHECK
+    # =====================
+
+    if text == "/check":
+
+        sandbox_check(
             chat_id,
-            "🤖 Usa /start para abrir el menú.",
-            main_menu()
+            sender_id,
+            username
         )
 
+        return
+
+    # =====================
+    # PREMIUM
+    # =====================
+
+    if text.startswith("/premium"):
+
+        premium(chat_id)
+
+        return
+
+    # =====================
+    # CRÉDITOS
+    # =====================
+
+    if text.startswith("/credits"):
+
+        credits(
+            chat_id,
+            sender_id,
+            username
+        )
+
+        return
+
+    # =====================
+    # MENSAJE DESCONOCIDO
+    # =====================
+
+    send_message(
+        chat_id,
+        "🤖 Usa /start para abrir el menú."
+    )
+
+
+# =========================
+# WEB
+# =========================
 
 @app.route("/")
 def home():
+    return "Bill Cypher Chk OK", 200
+
+
+@app.route("/health")
+def health():
     return "OK", 200
 
 
-@app.route("/telegram/<secret>", methods=["POST"])
-def telegram_webhook(secret):
-    if secret != WEBHOOK_SECRET:
-        return "Unauthorized", 401
+# =========================
+# POLLING
+# =========================
 
-    update = request.get_json(silent=True)
+def polling():
 
-    if update:
-        process_update(update)
+    print("Iniciando bot...")
 
-    return "OK", 200
-
-
-def set_webhook():
-    url = f"{PUBLIC_URL}/telegram/{WEBHOOK_SECRET}"
-
-    requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
-        json={"url": url},
-        timeout=15
+    # Elimina cualquier webhook anterior
+    telegram(
+        "deleteWebhook",
+        {
+            "drop_pending_updates": True
+        }
     )
 
+    offset = 0
+
+    while True:
+
+        try:
+
+            result = telegram(
+                "getUpdates",
+                {
+                    "offset": offset,
+                    "timeout": 30
+                }
+            )
+
+            updates = result.get("result", [])
+
+            for update in updates:
+
+                offset = update["update_id"] + 1
+
+                try:
+                    process_update(update)
+                except Exception as e:
+                    print("Error procesando update:", e)
+
+        except Exception as e:
+
+            print("Error polling:", e)
+            time.sleep(5)
+
+
+# =========================
+# INICIO
+# =========================
 
 if __name__ == "__main__":
-    set_webhook()
 
-    port = int(os.environ.get("PORT", 10000))
+    thread = threading.Thread(
+        target=polling,
+        daemon=True
+    )
+
+    thread.start()
 
     app.run(
         host="0.0.0.0",
-        port=port
+        port=PORT
     )
