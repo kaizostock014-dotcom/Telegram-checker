@@ -209,7 +209,44 @@ tarjetas reales.""",
     text = message.get("text", "").strip()
 
     user = get_user(message["from"])
+if text.startswith("/addcredit"):
+    if sender_id != ADMIN_ID:
+        send_message(chat_id, "⛔ No tienes permiso.")
+        return
 
+    partes = text.split()
+
+    if len(partes) != 3:
+        send_message(chat_id, "❌ Usa: /addcredit ID CANTIDAD")
+        return
+
+    try:
+        usuario_id = int(partes[1])
+        cantidad = int(partes[2])
+    except ValueError:
+        send_message(chat_id, "❌ ID y cantidad deben ser números.")
+        return
+
+    conn = db()
+
+    conn.execute(
+        "INSERT OR IGNORE INTO users (id, username, credits, plan) VALUES (?, '', 0, 'FREE')",
+        (usuario_id,)
+    )
+
+    conn.execute(
+        "UPDATE users SET credits = credits + ? WHERE id = ?",
+        (cantidad, usuario_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+    send_message(
+        chat_id,
+        f"✅ Se agregaron {cantidad} créditos a {usuario_id}."
+    )
+    return
     if text.startswith("/start"):
         send_message(
             chat_id,
