@@ -3,7 +3,7 @@ import random
 import json
 import webbrowser
 
-card_number = input("Enter your credit card number: ")
+card_number = ("Enter your credit card number: ")
 bin_prefix = card_number[:6]
 
 def format_card_number(num: str) -> str:
