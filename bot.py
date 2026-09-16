@@ -1,188 +1,991 @@
+import os
+import re
+import time
+import threading
 import requests
-import random
-import json
-import webbrowser
+
+from flask import Flask, jsonify
 
 
+# ============================================================
+# CONFIGURACIÓN
+# ============================================================
 
-card_number = input("Enter your credit card number: ")
-bin_prefix = card_number[:6]
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+PORT = int(os.getenv("PORT", "10000"))
 
+API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-
-def format_card_number(num: str) -> str:
-    """Format card number with spaces every 4 digits."""
-    parts = [num[i:i+4] for i in range(0, len(num), 4)]
-    return " ".join(parts)
-
-cvc = input("Enter your CVC: ")
-mm = input("Enter your expiration month (MM): ")
-yy = input("Enter your expiration year (YY): ")
+app = Flask(__name__)
 
 
-headers = {
-    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'accept-language': 'en-US,en;q=0.9',
-    'priority': 'u=0, i',
-    'referer': 'https://ezycourse.com/',
-    'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest': 'document',
-    'sec-fetch-mode': 'navigate',
-    'sec-fetch-site': 'same-origin',
-    'sec-fetch-user': '?1',
-    'upgrade-insecure-requests': '1',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
-    # 'cookie': '_gcl_au=1.1.984969927.1784905915; _fbp=fb.1.1784905915548.957180182637388509; ruccd=s%3AeyJtZXNzYWdlIjoiTlAiLCJwdXJwb3NlIjoicnVjY2QifQ.aeXzvLoJEjSPwyqj2x2QsFXk3taNThBZ76FIsO9nq4Q; XSRF-TOKEN=e%3A4cnpOglmEySih6d87XMYoZy4QXOkKQP7uGV1xXRuFqcibau4Obm1EXQX4g-kBzQz890JfnDOzE7QBg82ScUTZyImlUucEV-0BwSA2pBThhs.VWQ5d1RCVE82ajd1T1FwcQ.1cKzd2nDRcJKjtWcMRdxqsqNvT7L2_mwjfbtTrZGLC4; swuid=s%3AeyJtZXNzYWdlIjoiY21yejJ3cHNzOXB3ajZ2cXJoNWRkMGJpZyIsInB1cnBvc2UiOiJzd3VpZCJ9.s_ZACgWIAQo3N2UoltoocYEDzj17ZFUZgVJ0B3sv8P4; crisp-client%2Fsession%2Fa09eea92-f4ec-4c30-86be-838a16c1c7aa=session_6054a039-58bd-4791-969d-568ca28e49cd; crisp-client%2Fsocket%2Fa09eea92-f4ec-4c30-86be-838a16c1c7aa=1; cookieyes-consent=consentid:SkV1T28zMnZtNlZzQkNmUDFxNTlDU294eDNUWVBHMFY,consent:yes,action:yes,necessary:yes,functional:yes,analytics:yes,performance:yes,advertisement:yes,other:yes',
-}
-webbrowser.open("t.me/diwazz")
-params = {
-    'plan': 'pro',
-    'interval': 'month',
-    'trial': 'true',
-    'utm_source': 'header',
-    'utm_medium': 'nav_cta',
-    'utm_campaign': 'free_trial',
-    'utm_content': 'mobile_try_free_14d',
-}
+# ============================================================
+# SERVIDOR WEB PARA RENDER
+# ============================================================
 
-response = requests.get('https://ezycourse.com/signup', params=params,  headers=headers)
+@app.route("/")
+def inicio():
+    return jsonify({
+        "bot": "Bill Cypher Chk",
+        "estado": "Online",
+        "modo": "Sandbox",
+        "version": "2.0"
+    })
 
 
-if response.status_code == 200:
-    print("Request successful!")
+@app.route("/health")
+def salud():
+    return jsonify({
+        "estado": "OK",
+        "telegram": "activo"
+    })
 
 
-webbrowser.open("t.me/diwazz")
-headers = {
-    'accept': 'application/json',
-    'accept-language': 'en-US,en;q=0.9',
-    'content-type': 'application/x-www-form-urlencoded',
-    'origin': 'https://js.stripe.com',
-    'priority': 'u=1, i',
-    'referer': 'https://js.stripe.com/',
-    'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-site',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
-}
+# ============================================================
+# TELEGRAM
+# ============================================================
 
-params = {
-    'bin_prefix': bin_prefix,
-    'key': 'pk_live_51NMHTlLvIw0k1EPu80ivQ0HYQ9NUotEncPEpUYYytP8YkUPB4vNGYICv1rB5Emf6nD1UzKXd0wKzdXnumGJqYPDt00Huwrpsfq',
-    '_stripe_version': '2025-03-31.basil',
-}
+def telegram(metodo, datos=None):
+    try:
+        respuesta = requests.post(
+            f"{API}/{metodo}",
+            json=datos or {},
+            timeout=30
+        )
 
-response = requests.get('https://api.stripe.com/edge-internal/card-metadata', params=params, headers=headers)
+        return respuesta.json()
+
+    except Exception as e:
+        print(f"[TELEGRAM] Error: {e}")
+        return {
+            "ok": False,
+            "error": str(e)
+        }
 
 
-if response.status_code == 200:
-    print("Request successful!")
+def enviar_mensaje(chat_id, texto, teclado=None):
+    datos = {
+        "chat_id": chat_id,
+        "text": texto,
+        "parse_mode": "HTML"
+    }
+
+    if teclado:
+        datos["reply_markup"] = teclado
+
+    return telegram("sendMessage", datos)
 
 
+def editar_mensaje(chat_id, mensaje_id, texto, teclado=None):
+    datos = {
+        "chat_id": chat_id,
+        "message_id": mensaje_id,
+        "text": texto,
+        "parse_mode": "HTML"
+    }
 
-webbrowser.open("t.me/diwazz")
-guid = ''.join(random.choices('0123456789abcdef', k=32))
-muid = ''.join(random.choices('0123456789abcdef', k=32))
-sid = ''.join(random.choices('0123456789abcdef', k=32))
+    if teclado:
+        datos["reply_markup"] = teclado
 
-headers = {
-    'accept': 'application/json',
-    'accept-language': 'en-US,en;q=0.9',
-    'content-type': 'application/x-www-form-urlencoded',
-    'origin': 'https://js.stripe.com',
-    'priority': 'u=1, i',
-    'referer': 'https://js.stripe.com/',
-    'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-site',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
-}
+    return telegram("editMessageText", datos)
 
 
-data = {
-    'type': 'card',
-    'card[number]': card_number,
-    'card[cvc]': cvc,
-    'card[exp_month]': mm,
-    'card[exp_year]': yy,
-    'guid': guid,
-    'muid': muid,
-    'sid': sid,
-    'payment_user_agent': 'stripe.js/142f43c30d; stripe-js-v3/142f43c30d; card-element',
-    'referrer': 'https://ezycourse.com',
-    'time_on_page': str(random.randint(30000, 180000)),
-    'client_attribution_metadata[client_session_id]': ''.join(random.choices('0123456789abcdef-', k=36)),
-    'client_attribution_metadata[merchant_integration_source]': 'elements',
-    'client_attribution_metadata[merchant_integration_subtype]': 'card-element',
-    'client_attribution_metadata[merchant_integration_version]': '2017',
-    'client_attribution_metadata[wallet_config_id]': ''.join(random.choices('0123456789abcdef-', k=36)),
-    'key': 'pk_live_51NMHTlLvIw0k1EPu80ivQ0HYQ9NUotEncPEpUYYytP8YkUPB4vNGYICv1rB5Emf6nD1UzKXd0wKzdXnumGJqYPDt00Huwrpsfq',
-    '_stripe_version': '2025-03-31.basil',
-}
-
-# The hCaptcha token - this WILL expire! You need to generate fresh ones
-# This token is usually obtained from a challenge. Without it, Stripe may reject the request.
-data['radar_options[hcaptcha_token]'] = 'P1_eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJwZCI6MCwiZXhwIjoxNzg0OTA2MjYzLCJjZGF0YSI6IjVkek02c2VzY1FhTUZiUmQwV1lTckhLQWlNcUFLMExhd2d2b2ZoNkZNdmZxWnFOOU91ZjRQcjgxaDBVV015OEtWTkJHblYxV0RBTHlNSE5BRkp4MlpVamJYSmdJRzhGZU1VZ3MyVzNVbTJGTUZNWDIxZ1dPc0Ewd3pGMEpoSmt4VHg0cmxGb0N3bDFrZnE2eWNrdVpOUS85TTJGVmttYWRGM0lYMVVTVHNqVTBGWWdYL1h6ajdNelJyaFRLZDBUb0lKLzllZHZreGJwZjBGeU1YalNta3BoT3lENHdvVm9QNjFoaW15cnprTUs3SzZxelFEVkl6RGROY093SVBQS3B1cTUxZkd3dVpSQU0rZkZjMEhmNWVZdFI4bW10eG9aSmhFMzloZ2ZWTzNGRlJIZFdQQ1M5TVFtOGhkZ2xpVS9pZDdwekRjU01EOU0yZzlha2p0VnI4RG5uOU13NVNGVkpYdzA4YWNlY1JuRT04RmJlYmRsbFhIVXp0OXBhIiwicGFzc2tleSI6ImNCZk1WT2xzRStZU3FQNDQzcHBXaFVFcy9ZbFRtNkxiTGdoOTdzRTJ3c3c1NU5vakZBZzF0Kzg5dlViSWxEdE85OFBjQWloL2dYMDVBcHNiYzBTdE5oK1BkeVhsWkR6S25EdWM2SWx1Um5nVnZtVHhJS2tBMWdFZ0lLVENaS3hmNHgrYmhsUm5remcrYzlZaFRBQ1NQT1ZBN1NRWWMwMGlvdmo0TmwvaWs0S1MxcTh6MXdjbzluTlJUbVZoQXJrSXBOTWZmS1ZWNWFIcUJDbUtOajE2SWhPNWZvdGVrVlJYeTZRYjk3V2JPb1RseGc3WDg1ekZ3SitBSnVlbkdadHROYTE1MS91OFBRQ1RsVFBSSVMxOVYzRzBYZkwwRkE2VThBQVJBMlF1eHlaZ093TlI0MFdnYlUrbGJjdi9CUGpYWTcyNEUxQ0JTSEdwc0VkQTBrNzNuSkM0UGlncDM0Y1luNEM5MW1oTlhtd1lkbUMwYUdRU1hsWFJJL3NLNTVEb2diOVo0bWZsTzRXTjVCOUI5UWlFV28reHB0QmFZVTl5K1h6Y3U1TmUzWWlhbmVObC9VZmRNNWoxc3lCM3BlRVF3bDk4d1ZGdGV4akdMNHdMdmpXTHNXZGNoM2t2eS9FSzhsZnVFMlBZb21kUnZBQitKNmtQMU5pUkttVUdnU2tWRHVzV0phSkxnVVFxSG5oTm5MNFBoMWdPOE00WW5MSy8vUVhmYUFjZHBFeGFWSWZ3WktKNmovTGpITFhvMjBmVFJtbFZ1dWg4TkZWSDFhQ2JJL0VvbUZ1OTRpZ0dIcGJ1WHB3amd6VTI4Q1B4QnJOVXQrUDdaUGlZdFJpVVlQMFAvVnNRWGVxL3l4OVdFRC85MlpMMVlmeFNYTUNqOUJzWnlDYW1Cc0ljUmpVZS9yMkN1OWptRFp1OW5lc1k5SG9SN2p2TTNWdGR0R2tVTitMdmltZFlJTE5pUktIUWVFWkJ2SHJQY3RLYllUVTdaNWpDU3l6c3U4YlhaMjZsajJKVzhNdVRzR3VpVXREUGFNem83bVJNRzcxbVBXNGNENkFsSGl6YjlxeHBoRlZzNWx0TkVsT0pRcmxuTzN1ejdhVzFHLzgrZXBDWFBKVFVUN2k2anBMb0ZicVV3eUkrNHF2UlU1clN4eTJ5WjM3MXI0TjIxTDVIL0VMTEZnS3A5TFhWUnFsbEJCaER2SkxkWHZxQzhTbHpGeGp1V1pPY0I0eUdJYnB4ZTFUdktZVXFMYm1FN3ZuaUR6VUE2MWwvMjN5dFJtdmEvQm5MQVhPTXFoQ0Z3SGJ4MEFxRHNYcDltWGY5aVpxRERQTTJuOGZzQy93QUNBK1lrOVY3dzJxWHBUUDVobXc4WXA5cldMUTJsSHU1UkdYMkswYUtUNVllS3V5Y2djWVl1b1NMcmVrOURLazArY0RyZmhqdlVTVnlRMEt0cXkwS0h4cVJDWWl2Umo2SWIwbUlaUlpNNmdQZXNaYUhtSDRQcTExNVVYMnlpOWtic1hTZXk5Rm5MRWh1OEhTSFJiNDFVRlZYQ212V2VUTEQwc1d3bVd0dlM0aGxpK1VlZDM4NllDbEJhSmVZWGRuRno4NU1GNlNKU1JTOFlDMXFBdksvalNFMjlvZ0h0R3lzOCthMlJ0bnNpYTBKZHRaUE9zOXBJR0lGSTdCaXpVK01nZ1QzOUxrNGJZVFdyWVBrUEtOT1d1NTZ1Wjc0RjBLaW54RmxGQ2lxV0g1dVNiRmUrdzJBa2JldzZFMUhLK3hoa3IwSmVjWjRoTGdPSFd5bTJ1S2h5N3BTY1BvVEFCSnpUcWFpazhVL0k0NnlTOGtqVmxyVGhNVWpvdlpkdlZGRUc2S08zdHZHMkRSYy9NZEh4OGpISjNHSE9VcUU1WndydzY4VmkwaG0veTR6RDF5b1lpM2JlaUtlaHNBVkJ0dngxY1NWb2thc1VtdWE1Y2F6UHBSOGJHU1UxR2NaWHAzaFFUT1RrRTZMekF2bTZOYjBaZ0V1bkEyRnk5SkU1L2xWdVJwSHRsaWM1Vkp5cEZLYnVNUHdnMXdxclpqUTQrb3d1ZnZjOWs4MmNaOVIxbG1va2hyTm53cWROV3lGZGpTU05HMGcwbDJ3bi82M1pzWmpnR3JmRGtvbnVPT3FtNDFqY1NiSklyeGVHeitKRXZNMW9uMTFFdjRxc3Mya2RTenZsWmZwYzVVTkgxeTYxVjlrM1F4c3ZUaEdoNVFFcjgwaGRmVUhIR0JlUE5IZEE1bDZhN1dvSUZLN2hsTFdjcldTMk9tS25MTEcvVXR2Nm80ei9ENzc1ZElnMUhIY3V2U0p3aTlNOU1NcjJBaU4rdk9PcTFka09iU2ZLNDZ5L2VPdE42bkRSSXhrbGtIODIyZ2s0YlpEcG5JdlNNeTg5NzZZZ0tKdnMydEFLSktkb1RwQnRnY2h2SGRGS1VWekRsaU1WNlpuODdRdmI5RWhxRDZHd2ZJQzRRUmsxdjNXVHFTVkFUcHV2ZWl1QzBQRUFrQ3EwTUhQQUdKQThhM0Evd2c5S1JhUXVvaUhWUEdYWGkxYjUwdnd0SUxvN21zMGVxaWpMUE9JbnJWNUtCdmlVSlhyS1U3M09OWVMrNGdSd2FQcm9oSUM2L1lEdkx0aCtNOEU3cjZkazRrWmNRa1JxMGVGaXFxallES2xSZUVPeGpTeVMzQVI1K0dkVm9Xa1hROUJwU0x3UWFlRWdMbDh0S09Udm5qZ3VLN1I0NTBHY0M3R0d5QWVjbFc3MHV4VVE4SEFvdnNFdkRWam45MURRRUp6RVRYd0RHem1pRk1wVEUyYXNMYTBHUlNrdkhzTFBSYmJUbmMyZjcrUVRRRk92biszOVllcjFNenlUV2JnZlE9PSIsImtyIjoiMWM4Yzc3MmEiLCJzaGFyZF9pZCI6MzYyNDA2OTk2fQ.3r_SxjYIjYT4aNb-oEDE6nwHt-CHHsak60X3wYSRo5A'
-
-
-response = requests.post(
-        'https://api.stripe.com/v1/payment_methods',
-        headers=headers,
-        data=data,
-        timeout=60  # 60 second timeout for Stripe
+def responder_callback(callback_id):
+    telegram(
+        "answerCallbackQuery",
+        {
+            "callback_query_id": callback_id
+        }
     )
 
 
-id = response.json().get('id')
-print(id)
+# ============================================================
+# TECLADOS
+# ============================================================
 
-
-headers = {
-    'accept': 'application/json, text/plain, */*',
-    'accept-language': 'en-US,en;q=0.9',
-    'content-type': 'application/json',
-    'origin': 'https://ezycourse.com',
-    'priority': 'u=1, i',
-    'referer': 'https://ezycourse.com/signup?plan=pro&interval=month&trial=true&utm_source=header&utm_medium=nav_cta&utm_campaign=free_trial&utm_content=mobile_try_free_14d',
-    'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-origin',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
-    'x-xsrf-token': 'e:ZflHllbI4_yAXmKRr-Lw0vezD3DEd-V0lDD1kUFTQydg5HjP9vX58TS3rJLROUl38csw98fjKGYjJPtv4T3KSRP3ZXVlcr7lxwb0-JLTw6U.SmZtYk82S0JoLXdKckR3Xw.16dtZF50jEuYYCRAuccc5cH9ZBusrkVMQn-QOD6CGwY',
-    # 'cookie': '_gcl_au=1.1.984969927.1784905915; _fbp=fb.1.1784905915548.957180182637388509; ruccd=s%3AeyJtZXNzYWdlIjoiTlAiLCJwdXJwb3NlIjoicnVjY2QifQ.aeXzvLoJEjSPwyqj2x2QsFXk3taNThBZ76FIsO9nq4Q; swuid=s%3AeyJtZXNzYWdlIjoiY21yejJ3cHNzOXB3ajZ2cXJoNWRkMGJpZyIsInB1cnBvc2UiOiJzd3VpZCJ9.s_ZACgWIAQo3N2UoltoocYEDzj17ZFUZgVJ0B3sv8P4; crisp-client%2Fsession%2Fa09eea92-f4ec-4c30-86be-838a16c1c7aa=session_6054a039-58bd-4791-969d-568ca28e49cd; crisp-client%2Fsocket%2Fa09eea92-f4ec-4c30-86be-838a16c1c7aa=1; cookieyes-consent=consentid:SkV1T28zMnZtNlZzQkNmUDFxNTlDU294eDNUWVBHMFY,consent:yes,action:yes,necessary:yes,functional:yes,analytics:yes,performance:yes,advertisement:yes,other:yes; XSRF-TOKEN=e%3AZflHllbI4_yAXmKRr-Lw0vezD3DEd-V0lDD1kUFTQydg5HjP9vX58TS3rJLROUl38csw98fjKGYjJPtv4T3KSRP3ZXVlcr7lxwb0-JLTw6U.SmZtYk82S0JoLXdKckR3Xw.16dtZF50jEuYYCRAuccc5cH9ZBusrkVMQn-QOD6CGwY; utm_source_cookie=s%3AeyJtZXNzYWdlIjp7InV0bV9zb3VyY2UiOiJoZWFkZXIiLCJpcCI6IjI0MDA6MWEwMDo2YjRkOjE2MDQ6NzhiZDplOTc5OjJmN2Q6YjY4ZiIsImNvdW50cnlfY29kZSI6Ik5QIiwiaXRlbV9pZCI6Njk1MTN9LCJwdXJwb3NlIjoidXRtX3NvdXJjZV9jb29raWUifQ.GcIBfwdZADj3kFCn_lfp27n4zc9vZr4vNaLhVzwVW3I; __stripe_mid=c7a04ac3-3231-449a-a4aa-3160117892d5ca7f87; __stripe_sid=1c8957bc-3a18-4c66-921a-f64fc6d10971b88b1d',
+TECLADO_INICIO = {
+    "inline_keyboard": [
+        [
+            {
+                "text": "⚡ Analizar BIN",
+                "callback_data": "check"
+            },
+            {
+                "text": "⚙️ Comandos",
+                "callback_data": "comandos"
+            }
+        ],
+        [
+            {
+                "text": "👤 Cuenta",
+                "callback_data": "cuenta"
+            },
+            {
+                "text": "💎 Premium",
+                "callback_data": "premium"
+            }
+        ],
+        [
+            {
+                "text": "📚 Referencias",
+                "callback_data": "referencias"
+            },
+            {
+                "text": "📢 Actualizaciones",
+                "callback_data": "actualizaciones"
+            }
+        ]
+    ]
 }
 
-json_data = {
-    f'stripe_payment_method_uuid': id ,
-    'is_trial': True,
+
+TECLADO_COMANDOS = {
+    "inline_keyboard": [
+        [
+            {
+                "text": "⚡ Analizar",
+                "callback_data": "check"
+            }
+        ],
+        [
+            {
+                "text": "👤 Cuenta",
+                "callback_data": "cuenta"
+            },
+            {
+                "text": "💎 Premium",
+                "callback_data": "premium"
+            }
+        ],
+        [
+            {
+                "text": "🏠 Inicio",
+                "callback_data": "inicio"
+            }
+        ]
+    ]
 }
 
-response = requests.post(
-    'https://ezycourse.com/api/ezycourse/onboarding/create-setup-intent',
-    headers=headers,
-    json=json_data,
-)
 
-print(response.json())
-if response.status_code == 200:
-    print("Request successful!")    
-if response.status_code == 400:
-    print("Request failed!")
-    print(response.json())
+# ============================================================
+# INTERFAZ
+# ============================================================
 
-#done lets test this now 
+def pantalla_inicio(nombre):
+    return (
+        "╔══════════════════════════════╗\n"
+        "        <b>⚡ BILL CYPHER CHK ⚡</b>\n"
+        "╚══════════════════════════════╝\n\n"
+        f"👋 Hola, <b>{nombre}</b>\n\n"
+        "🧪 <b>Motor:</b> Sandbox\n"
+        "🟢 <b>Estado:</b> Online\n"
+        "⚙️ <b>Versión:</b> 2.0\n\n"
+        "Este bot analiza la estructura de un BIN "
+        "o número de tarjeta sin enviarlo a servicios externos.\n\n"
+        "Usa <code>/cmds</code> para ver los comandos."
+    )
 
-#code by diwazz
 
-webbrowser.open("t.me/diwazz")
+def pantalla_comandos():
+    return (
+        "╔══════════════════════════════╗\n"
+        "       <b>⚙️ PANEL DE COMANDOS</b>\n"
+        "╚══════════════════════════════╝\n\n"
+        "⚡ <b>/check</b> — Analizar BIN o tarjeta\n"
+        "🏠 <b>/start</b> — Menú principal\n"
+        "⚙️ <b>/cmds</b> — Panel de comandos\n"
+        "👤 <b>/cuenta</b> — Información de cuenta\n"
+        "💎 <b>/premium</b> — Información Premium\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🧪 <b>Modo Sandbox</b>\n"
+        "🔒 Los datos no se envían a procesadores de pago."
+    )
+
+
+# ============================================================
+# DETECCIÓN DE MARCA
+# ============================================================
+
+def detectar_marca(numero):
+    """
+    Detecta la red/marca utilizando el prefijo.
+    No consulta bancos ni procesadores.
+    """
+
+    numero = re.sub(r"\D", "", numero)
+
+    # Visa
+    if numero.startswith("4"):
+        return "Visa"
+
+    # Mastercard
+    if len(numero) >= 2:
+        prefijo_2 = int(numero[:2])
+
+        if 51 <= prefijo_2 <= 55:
+            return "Mastercard"
+
+    if len(numero) >= 4:
+        prefijo_4 = int(numero[:4])
+
+        if 2221 <= prefijo_4 <= 2720:
+            return "Mastercard"
+
+    # American Express
+    if numero.startswith("34") or numero.startswith("37"):
+        return "American Express"
+
+    # Discover
+    if numero.startswith("6011"):
+        return "Discover"
+
+    if numero.startswith("65"):
+        return "Discover"
+
+    if len(numero) >= 3:
+        prefijo_3 = int(numero[:3])
+
+        if 644 <= prefijo_3 <= 649:
+            return "Discover"
+
+    # JCB
+    if len(numero) >= 4:
+        prefijo_4 = int(numero[:4])
+
+        if 3528 <= prefijo_4 <= 3589:
+            return "JCB"
+
+    # UnionPay
+    if numero.startswith("62"):
+        return "UnionPay"
+
+    return "Desconocida"
+
+
+# ============================================================
+# ALGORITMO DE LUHN
+# ============================================================
+
+def validar_luhn(numero):
+    """
+    Comprueba únicamente la estructura matemática
+    mediante el algoritmo de Luhn.
+    """
+
+    numero = re.sub(r"\D", "", numero)
+
+    if not numero:
+        return False
+
+    suma = 0
+    duplicar = False
+
+    for digito in reversed(numero):
+
+        valor = int(digito)
+
+        if duplicar:
+            valor *= 2
+
+            if valor > 9:
+                valor -= 9
+
+        suma += valor
+        duplicar = not duplicar
+
+    return suma % 10 == 0
+
+
+# ============================================================
+# OCULTAR TARJETA
+# ============================================================
+
+def ocultar_numero(numero):
+    """
+    Nunca mostramos el número completo.
+    """
+
+    numero = re.sub(r"\D", "", numero)
+
+    if len(numero) <= 4:
+        return "•" * len(numero)
+
+    ultimos = numero[-4:]
+
+    return "•" * (len(numero) - 4) + ultimos
+
+
+# ============================================================
+# ANALIZADOR
+# ============================================================
+
+def analizar_dato(entrada):
+
+    limpio = re.sub(r"\D", "", entrada)
+
+    if not limpio:
+        return {
+            "tipo": "Inválido",
+            "marca": "Desconocida",
+            "luhn": False,
+            "bin": "N/A",
+            "longitud": 0
+        }
+
+    # --------------------------------------------------------
+    # BIN
+    # --------------------------------------------------------
+
+    if len(limpio) <= 8:
+
+        marca = detectar_marca(limpio)
+
+        return {
+            "tipo": "BIN",
+            "marca": marca,
+            "luhn": None,
+            "bin": limpio[:6],
+            "longitud": len(limpio)
+        }
+
+    # --------------------------------------------------------
+    # TARJETA
+    # --------------------------------------------------------
+
+    marca = detectar_marca(limpio)
+    luhn = validar_luhn(limpio)
+
+    return {
+        "tipo": "Tarjeta",
+        "marca": marca,
+        "luhn": luhn,
+        "bin": limpio[:6],
+        "longitud": len(limpio),
+        "oculta": ocultar_numero(limpio)
+    }
+
+
+# ============================================================
+# FORMATO DEL RESULTADO
+# ============================================================
+
+def resultado_analisis(resultado):
+
+    if resultado["tipo"] == "BIN":
+
+        return (
+            "╔══════════════════════════════╗\n"
+            "        <b>⚡ ANÁLISIS BIN</b>\n"
+            "╚══════════════════════════════╝\n\n"
+            f"🔢 <b>BIN:</b> <code>{resultado['bin']}</code>\n"
+            f"💳 <b>Marca:</b> {resultado['marca']}\n"
+            f"📏 <b>Dígitos recibidos:</b> {resultado['longitud']}\n\n"
+            "🧪 <b>Modo:</b> Sandbox\n"
+            "🔒 <b>Sin consulta financiera</b>\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "ℹ️ El BIN permite identificar la red "
+            "por su prefijo, pero no comprueba fondos "
+            "ni validez bancaria."
+        )
+
+    if resultado["tipo"] == "Tarjeta":
+
+        if resultado["luhn"]:
+            estado_luhn = "✅ Válida matemáticamente"
+        else:
+            estado_luhn = "❌ No válida matemáticamente"
+
+        return (
+            "╔══════════════════════════════╗\n"
+            "      <b>⚡ ANÁLISIS DE TARJETA</b>\n"
+            "╚══════════════════════════════╝\n\n"
+            f"💳 <b>Número:</b> <code>{resultado['oculta']}</code>\n"
+            f"🔢 <b>BIN:</b> <code>{resultado['bin']}</code>\n"
+            f"🏦 <b>Marca:</b> {resultado['marca']}\n"
+            f"📏 <b>Longitud:</b> {resultado['longitud']}\n\n"
+            f"🔐 <b>Luhn:</b> {estado_luhn}\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🧪 <b>Modo:</b> Sandbox\n"
+            "🔒 No se realizó ninguna autorización "
+            "ni consulta de fondos."
+        )
+
+    return (
+        "❌ <b>Dato inválido</b>\n\n"
+        "Introduce un BIN o un número compuesto "
+        "únicamente por dígitos."
+    )
+
+
+# ============================================================
+# ANIMACIÓN DEL CHECK
+# ============================================================
+
+def animacion_check(chat_id, entrada):
+
+    mensaje = enviar_mensaje(
+        chat_id,
+        "⚡ <b>Bill Cypher Chk</b>\n\n"
+        "🔄 Preparando análisis..."
+    )
+
+    if not mensaje.get("ok"):
+        return
+
+    mensaje_id = mensaje["result"]["message_id"]
+
+    pasos = [
+        "🔎 Leyendo entrada...",
+        "🔢 Extrayendo BIN...",
+        "💳 Detectando marca...",
+        "🧮 Ejecutando algoritmo de Luhn...",
+        "🔒 Preparando resultado seguro...",
+        "✅ Análisis terminado."
+    ]
+
+    for paso in pasos:
+
+        editar_mensaje(
+            chat_id,
+            mensaje_id,
+            (
+                "╔══════════════════════════════╗\n"
+                "       <b>⚡ BILL CYPHER CHK</b>\n"
+                "╚══════════════════════════════╝\n\n"
+                f"{paso}\n\n"
+                "🧪 <b>Motor:</b> Sandbox"
+            )
+        )
+
+        time.sleep(0.45)
+
+    resultado = analizar_dato(entrada)
+
+    editar_mensaje(
+        chat_id,
+        mensaje_id,
+        resultado_analisis(resultado),
+        TECLADO_COMANDOS
+    )
+
+
+# ============================================================
+# PROCESAMIENTO DE MENSAJES
+# ============================================================
+
+def procesar_mensaje(mensaje):
+
+    chat = mensaje.get("chat", {})
+    chat_id = chat.get("id")
+
+    texto = mensaje.get("text", "")
+
+    if not chat_id or not texto:
+        return
+
+    nombre = mensaje.get("from", {}).get("first_name", "Usuario")
+
+    texto = texto.strip()
+
+    print(
+        f"[MENSAJE] Usuario={chat_id} "
+        f"Texto={texto[:50]}"
+    )
+
+    # --------------------------------------------------------
+    # START
+    # --------------------------------------------------------
+
+    if texto.startswith("/start"):
+
+        enviar_mensaje(
+            chat_id,
+            pantalla_inicio(nombre),
+            TECLADO_INICIO
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # COMANDOS
+    # --------------------------------------------------------
+
+    if texto.startswith("/cmds"):
+
+        enviar_mensaje(
+            chat_id,
+            pantalla_comandos(),
+            TECLADO_COMANDOS
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # CUENTA
+    # --------------------------------------------------------
+
+    if texto.startswith("/cuenta"):
+
+        enviar_mensaje(
+            chat_id,
+            (
+                "╔══════════════════════════════╗\n"
+                "          <b>👤 CUENTA</b>\n"
+                "╚══════════════════════════════╝\n\n"
+                f"👤 <b>Usuario:</b> {nombre}\n"
+                f"🆔 <b>ID:</b> <code>{chat_id}</code>\n"
+                "💎 <b>Plan:</b> Free\n"
+                "🧪 <b>Motor:</b> Sandbox"
+            ),
+            TECLADO_COMANDOS
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # PREMIUM
+    # --------------------------------------------------------
+
+    if texto.startswith("/premium"):
+
+        enviar_mensaje(
+            chat_id,
+            (
+                "╔══════════════════════════════╗\n"
+                "          <b>💎 PREMIUM</b>\n"
+                "╚══════════════════════════════╝\n\n"
+                "🚀 Funciones Premium próximamente.\n\n"
+                "🧪 El análisis actual funciona en "
+                "modo Sandbox."
+            ),
+            TECLADO_COMANDOS
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # CHECK SIN ARGUMENTO
+    # --------------------------------------------------------
+
+    if texto == "/check":
+
+        enviar_mensaje(
+            chat_id,
+            (
+                "⚡ <b>Analizador Bill Cypher</b>\n\n"
+                "Escribe un BIN o número para analizarlo.\n\n"
+                "Ejemplo de BIN:\n"
+                "<code>/check 424242</code>\n\n"
+                "Ejemplo de tarjeta de prueba:\n"
+                "<code>/check 4242424242424242</code>\n\n"
+                "🔒 El análisis es local y no se envían "
+                "los datos a ningún procesador."
+            )
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # CHECK CON ARGUMENTO
+    # --------------------------------------------------------
+
+    if texto.startswith("/check "):
+
+        entrada = texto[7:].strip()
+
+        if not entrada:
+
+            enviar_mensaje(
+                chat_id,
+                "❌ Debes proporcionar un BIN o número."
+            )
+
+            return
+
+        # Evitamos que se procese texto arbitrario
+        # y solo permitimos dígitos.
+        if not re.fullmatch(r"[0-9 ]+", entrada):
+
+            enviar_mensaje(
+                chat_id,
+                (
+                    "❌ <b>Formato inválido.</b>\n\n"
+                    "Utiliza únicamente números."
+                )
+            )
+
+            return
+
+        # No permitimos entradas absurdamente grandes.
+        limpio = re.sub(r"\s+", "", entrada)
+
+        if len(limpio) > 19:
+
+            enviar_mensaje(
+                chat_id,
+                "❌ La entrada supera la longitud permitida."
+            )
+
+            return
+
+        threading.Thread(
+            target=animacion_check,
+            args=(chat_id, limpio),
+            daemon=True
+        ).start()
+
+        return
+
+    # --------------------------------------------------------
+    # TEXTO DESCONOCIDO
+    # --------------------------------------------------------
+
+    enviar_mensaje(
+        chat_id,
+        (
+            "🤖 No reconocí ese comando.\n\n"
+            "Usa <code>/cmds</code> para ver "
+            "los comandos disponibles."
+        ),
+        TECLADO_COMANDOS
+    )
+
+
+# ============================================================
+# CALLBACKS DE BOTONES
+# ============================================================
+
+def procesar_callback(callback):
+
+    callback_id = callback.get("id")
+
+    responder_callback(callback_id)
+
+    datos = callback.get("data", "")
+    mensaje = callback.get("message", {})
+
+    chat_id = mensaje.get("chat", {}).get("id")
+    mensaje_id = mensaje.get("message_id")
+
+    if not chat_id or not mensaje_id:
+        return
+
+    # --------------------------------------------------------
+    # INICIO
+    # --------------------------------------------------------
+
+    if datos == "inicio":
+
+        nombre = callback.get("from", {}).get(
+            "first_name",
+            "Usuario"
+        )
+
+        editar_mensaje(
+            chat_id,
+            mensaje_id,
+            pantalla_inicio(nombre),
+            TECLADO_INICIO
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # COMANDOS
+    # --------------------------------------------------------
+
+    if datos == "comandos":
+
+        editar_mensaje(
+            chat_id,
+            mensaje_id,
+            pantalla_comandos(),
+            TECLADO_COMANDOS
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # CHECK
+    # --------------------------------------------------------
+
+    if datos == "check":
+
+        enviar_mensaje(
+            chat_id,
+            (
+                "⚡ <b>ANALIZADOR</b>\n\n"
+                "Utiliza:\n"
+                "<code>/check 424242</code>\n\n"
+                "o una tarjeta de prueba:\n"
+                "<code>/check 4242424242424242</code>"
+            )
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # CUENTA
+    # --------------------------------------------------------
+
+    if datos == "cuenta":
+
+        usuario = callback.get("from", {})
+
+        enviar_mensaje(
+            chat_id,
+            (
+                "╔══════════════════════════════╗\n"
+                "          <b>👤 CUENTA</b>\n"
+                "╚══════════════════════════════╝\n\n"
+                f"👤 <b>Nombre:</b> "
+                f"{usuario.get('first_name', 'Usuario')}\n"
+                f"🆔 <b>ID:</b> "
+                f"<code>{usuario.get('id', 'N/A')}</code>\n"
+                "💎 <b>Plan:</b> Free\n"
+                "🟢 <b>Estado:</b> Activo"
+            ),
+            TECLADO_COMANDOS
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # PREMIUM
+    # --------------------------------------------------------
+
+    if datos == "premium":
+
+        enviar_mensaje(
+            chat_id,
+            (
+                "💎 <b>PREMIUM</b>\n\n"
+                "Funciones Premium próximamente.\n\n"
+                "Actualmente el motor funciona "
+                "completamente en Sandbox."
+            ),
+            TECLADO_COMANDOS
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # REFERENCIAS
+    # --------------------------------------------------------
+
+    if datos == "referencias":
+
+        enviar_mensaje(
+            chat_id,
+            (
+                "📚 <b>REFERENCIAS</b>\n\n"
+                "• Python\n"
+                "• Telegram Bot API\n"
+                "• HTTP/JSON\n"
+                "• Expresiones regulares\n"
+                "• Algoritmo de Luhn\n\n"
+                "🧪 El motor de análisis no realiza "
+                "consultas financieras."
+            ),
+            TECLADO_COMANDOS
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # ACTUALIZACIONES
+    # --------------------------------------------------------
+
+    if datos == "actualizaciones":
+
+        enviar_mensaje(
+            chat_id,
+            (
+                "📢 <b>ACTUALIZACIONES</b>\n\n"
+                "⚡ Bill Cypher Chk v2.0\n"
+                "🧪 Motor Sandbox\n"
+                "💳 Detector de marca\n"
+                "🧮 Validador Luhn\n"
+                "🎨 Interfaz renovada"
+            ),
+            TECLADO_COMANDOS
+        )
+
+        return
+
+
+# ============================================================
+# POLLING
+# ============================================================
+
+def borrar_webhook():
+
+    print("[TG] Eliminando webhook...")
+
+    resultado = telegram(
+        "deleteWebhook",
+        {
+            "drop_pending_updates": False
+        }
+    )
+
+    print(
+        "[TG] deleteWebhook:",
+        resultado
+    )
+
+
+def comprobar_bot():
+
+    resultado = telegram("getMe")
+
+    if resultado.get("ok"):
+
+        usuario = resultado["result"]
+
+        print(
+            f"[TG] Conectado como "
+            f"@{usuario.get('username', 'sin_username')}"
+        )
+
+        return True
+
+    print(
+        "[TG] ERROR getMe:",
+        resultado
+    )
+
+    return False
+
+
+def polling():
+
+    print("[TG] Iniciando polling...")
+
+    offset = None
+
+    while True:
+
+        try:
+
+            datos = {
+                "timeout": 30,
+                "limit": 100
+            }
+
+            if offset is not None:
+                datos["offset"] = offset
+
+            respuesta = requests.post(
+                f"{API}/getUpdates",
+                json=datos,
+                timeout=40
+            )
+
+            resultado = respuesta.json()
+
+            if not resultado.get("ok"):
+
+                print(
+                    "[TG] Error getUpdates:",
+                    resultado
+                )
+
+                time.sleep(5)
+                continue
+
+            actualizaciones = resultado.get(
+                "result",
+                []
+            )
+
+            for actualizacion in actualizaciones:
+
+                offset = actualizacion["update_id"] + 1
+
+                try:
+
+                    if "message" in actualizacion:
+
+                        procesar_mensaje(
+                            actualizacion["message"]
+                        )
+
+                    elif "callback_query" in actualizacion:
+
+                        procesar_callback(
+                            actualizacion["callback_query"]
+                        )
+
+                except Exception as e:
+
+                    print(
+                        "[UPDATE] Error:",
+                        repr(e)
+                    )
+
+        except Exception as e:
+
+            print(
+                "[POLLING] Error:",
+                repr(e)
+            )
+
+            time.sleep(5)
+
+
+# ============================================================
+# ARRANQUE
+# ============================================================
+
+def iniciar():
+
+    print("=" * 50)
+    print("⚡ BILL CYPHER CHK")
+    print("🧪 Motor Sandbox")
+    print("=" * 50)
+
+    if not BOT_TOKEN:
+
+        print(
+            "[BOOT] ERROR: BOT_TOKEN no está configurado."
+        )
+
+        return
+
+    print("[BOOT] BOT_TOKEN: OK")
+
+    borrar_webhook()
+
+    if not comprobar_bot():
+
+        print(
+            "[BOOT] No se pudo autenticar con Telegram."
+        )
+
+        return
+
+    hilo = threading.Thread(
+        target=polling,
+        daemon=True
+    )
+
+    hilo.start()
+
+    print("[BOOT] Polling iniciado.")
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+if __name__ == "__main__":
+
+    iniciar()
+
+    app.run(
+        host="0.0.0.0",
+        port=PORT,
+        debug=False,
+        use_reloader=False
+    )
