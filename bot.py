@@ -1,216 +1,304 @@
 import os
 import time
+import random
 import sqlite3
 import threading
 import requests
-from flask import Flask, request
+from flask import Flask, jsonify
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
-PORT = int(os.environ.get("PORT", "10000"))
-PUBLIC_URL = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-DB = "bot.db"
-API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+# ============================================================
+# BILL CYPHER CHK — KAORI-STYLE SAFE SANDBOX BOT
+# Visual animations + animated loading + inline menus.
+# No real card/CVV/funds/authorization processing.
+# ============================================================
+
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0") or 0)
+PORT = int(os.getenv("PORT", "10000"))
+DB_PATH = os.getenv("DB_PATH", "bot.db")
+ANIMATION_URL = os.getenv("ANIMATION_URL", "").strip()
+VERSION = "1.3"
+GATEWAYS = 73
+TOOLS = 12
 
 app = Flask(__name__)
+API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+DB_LOCK = threading.Lock()
+
 
 def db():
-    c=sqlite3.connect(DB, check_same_thread=False)
-    c.row_factory=sqlite3.Row
+    c = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    c.row_factory = sqlite3.Row
     return c
 
+
 def init_db():
-    c=db()
-    c.execute("""CREATE TABLE IF NOT EXISTS users(
-        id INTEGER PRIMARY KEY,
-        username TEXT DEFAULT '',
-        first_name TEXT DEFAULT '',
-        credits INTEGER DEFAULT 5,
-        plan TEXT DEFAULT 'FREE',
-        checks INTEGER DEFAULT 0)""")
-    c.commit(); c.close()
+    with DB_LOCK:
+        c = db()
+        c.execute("""CREATE TABLE IF NOT EXISTS users(
+            id INTEGER PRIMARY KEY, username TEXT DEFAULT '', first_name TEXT DEFAULT '',
+            credits INTEGER DEFAULT 5, plan TEXT DEFAULT 'FREE', checks INTEGER DEFAULT 0,
+            joined_at TEXT DEFAULT CURRENT_TIMESTAMP, last_check TEXT DEFAULT ''
+        )""")
+        c.commit(); c.close()
+
+
+def tg(method, data=None):
+    try:
+        r = requests.post(f"{API}/{method}", json=data or {}, timeout=35)
+        out = r.json()
+        if not out.get("ok"): print("[TG ERROR]", method, out)
+        return out
+    except Exception as e:
+        print("[TG EXCEPTION]", method, e)
+        return None
+
 
 def ensure_user(u):
-    c=db()
-    r=c.execute("SELECT id FROM users WHERE id=?",(u["id"],)).fetchone()
-    if r is None:
-        c.execute("INSERT INTO users VALUES(?,?,?,?,?,?)",
-                  (u["id"],u.get("username",""),u.get("first_name","User"),5,"FREE",0))
-    else:
-        c.execute("UPDATE users SET username=?,first_name=? WHERE id=?",
-                  (u.get("username",""),u.get("first_name","User"),u["id"]))
-    c.commit(); c.close()
+    with DB_LOCK:
+        c = db()
+        row = c.execute("SELECT id FROM users WHERE id=?", (u["id"],)).fetchone()
+        if row:
+            c.execute("UPDATE users SET username=?, first_name=? WHERE id=?",
+                      (u.get("username", "") or "", u.get("first_name", "") or "", u["id"]))
+        else:
+            c.execute("INSERT INTO users(id,username,first_name) VALUES(?,?,?)",
+                      (u["id"], u.get("username", "") or "", u.get("first_name", "") or ""))
+        c.commit(); c.close()
+
 
 def get_user(uid):
-    c=db(); r=c.execute("SELECT * FROM users WHERE id=?",(uid,)).fetchone(); c.close(); return r
+    with DB_LOCK:
+        c = db(); r = c.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone(); c.close(); return r
 
-def tg(method,data=None):
+
+def send(chat_id, text, kb=None):
+    d = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+    if kb: d["reply_markup"] = kb
+    return tg("sendMessage", d)
+
+
+def edit(chat_id, mid, text, kb=None):
+    d = {"chat_id": chat_id, "message_id": mid, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+    if kb: d["reply_markup"] = kb
+    return tg("editMessageText", d)
+
+
+def animation(chat_id, caption, kb=None):
+    if not ANIMATION_URL:
+        return send(chat_id, caption, kb)
+    d = {"chat_id": chat_id, "animation": ANIMATION_URL, "caption": caption, "parse_mode": "HTML"}
+    if kb: d["reply_markup"] = kb
+    return tg("sendAnimation", d)
+
+
+def callback(cid):
+    tg("answerCallbackQuery", {"callback_query_id": cid})
+
+
+def home_kb(uid):
+    rows = [
+        [{"text":"⚡ Check Sandbox","callback_data":"check"},{"text":"👤 Account","callback_data":"account"}],
+        [{"text":"💎 Premium","callback_data":"premium"},{"text":"💰 Credits","callback_data":"credits"}],
+        [{"text":"⚙ Command Panel","callback_data":"panel"}],
+        [{"text":"📚 References","callback_data":"refs"},{"text":"📢 Updates","callback_data":"updates"}]
+    ]
+    if uid == ADMIN_ID: rows.append([{"text":"💠 Diamond","callback_data":"diamond"}])
+    return {"inline_keyboard": rows}
+
+
+def panel_kb():
+    return {"inline_keyboard":[
+        [{"text":"⚡ Gateways","callback_data":"gateways"},{"text":"⚙ Tools","callback_data":"tools"}],
+        [{"text":"👤 Account","callback_data":"account"},{"text":"💰 Credits","callback_data":"credits"}],
+        [{"text":"💎 Premium","callback_data":"premium"},{"text":"💠 Diamond","callback_data":"diamond"}],
+        [{"text":"🔙 Back","callback_data":"home"}]
+    ]}
+
+
+def back_kb(): return {"inline_keyboard":[[{"text":"🔙 Back","callback_data":"home"}]]}
+
+
+def home_text(u):
+    name = (u.get("first_name") or u.get("username") or "SpaceBoy").replace("<","&lt;").replace(">","&gt;")
+    return ("🔴━━━━━━━━━━━━━━━━━━🔴\n"
+            "♯ <b>Bill Cypher Chk</b> 𐓏\n"
+            "🔴━━━━━━━━━━━━━━━━━━🔴\n\n"
+            f"Hello <b>{name}</b>, Welcome to <b>Bill Cypher Chk</b>\n\n"
+            "🔴━━━━━━━━━━━━━━━━━━🔴\n\n"
+            "Use <code>/cmds</code> to open the interactive command panel.\n\n"
+            f"Bot Version: <b>{VERSION}</b>\n"
+            "Api Status: <b>Online 🟢</b>\n\n"
+            "🧪 Sandbox Engine: <b>Ready</b>\n"
+            "🔴━━━━━━━━━━━━━━━━━━🔴")
+
+
+def panel_text():
+    return ("🔴━━━━━━━━━━━━━━━━━━🔴\n"
+            "♯ <b>Bill Cypher Chk | Command Panel</b>\n"
+            "🔴━━━━━━━━━━━━━━━━━━🔴\n\n"
+            f"Gateways: <b>{GATEWAYS}</b> | Tools: <b>{TOOLS}</b>\n"
+            "Api Status: <b>Online 🟢</b>\n"
+            f"Bot Version: <b>{VERSION}</b>\n\n"
+            "Select an option below.")
+
+
+def animated_check(chat_id, uid):
+    row = get_user(uid)
+    if not row: return
+    if row["plan"] != "PREMIUM" and row["credits"] <= 0:
+        send(chat_id, "❌ <b>Sin créditos</b>\n\nUsa /premium para consultar los planes.", back_kb()); return
+    with DB_LOCK:
+        c = db()
+        if row["plan"] != "PREMIUM":
+            c.execute("UPDATE users SET credits=credits-1, checks=checks+1, last_check=datetime('now') WHERE id=?", (uid,))
+        else:
+            c.execute("UPDATE users SET checks=checks+1, last_check=datetime('now') WHERE id=?", (uid,))
+        c.commit(); c.close()
+
+    msg = send(chat_id, "⚡ <b>Bill Cypher Chk</b>\n\n▰▱▱▱▱ 20%\n🔄 Initializing sandbox...")
+    if not msg or not msg.get("ok"): return
+    mid = msg["result"]["message_id"]
+    frames = [
+        "⚡ <b>Bill Cypher Chk</b>\n\n▰▱▱▱▱ 20%\n🔄 Initializing sandbox...",
+        "⚡ <b>Bill Cypher Chk</b>\n\n▰▰▰▱▱ 50%\n🔎 Analyzing simulation...",
+        "⚡ <b>Bill Cypher Chk</b>\n\n▰▰▰▰▱ 80%\n📊 Generating response...",
+        "⚡ <b>Bill Cypher Chk</b>\n\n▰▰▰▰▰ 100%\n🟢 Test complete!"
+    ]
+    for f in frames:
+        time.sleep(.75)
+        edit(chat_id, mid, f)
+    latency = random.randint(120,420)
+    result = random.choice(["APPROVED (SIMULATED)","DECLINED (SIMULATED)","TEST COMPLETE"])
+    edit(chat_id, mid,
+         "⚡ <b>Bill Cypher Chk | Sandbox</b>\n"
+         "━━━━━━━━━━━━━━━━━━━━\n\n"
+         "🟢 <b>TEST COMPLETE</b>\n\n"
+         "Gateway: <b>SANDBOX</b>\n"
+         "Mode: <b>SIMULATION</b>\n"
+         f"Response: <b>{result}</b>\n"
+         f"Latency: <b>{latency}ms</b>\n\n"
+         "━━━━━━━━━━━━━━━━━━━━\n"
+         "⚠️ No real card was processed.\n"
+         "⚠️ No CVV, funds or bank authorization was performed.", back_kb())
+
+
+def account(chat_id, uid):
+    r=get_user(uid)
+    send(chat_id, f"👤 <b>ACCOUNT</b>\n━━━━━━━━━━━━━━━━━━━━\n\nID: <code>{r['id']}</code>\nUsername: @{r['username'] or 'none'}\nPlan: <b>{r['plan']}</b>\nCredits: <b>{r['credits']}</b>\nChecks: <b>{r['checks']}</b>", back_kb())
+
+
+def handle_command(chat_id, u, text):
+    ensure_user(u); p=text.split(); cmd=p[0].split('@')[0].lower(); args=p[1:]
+    if cmd=="/start": animation(chat_id,home_text(u),home_kb(u["id"]))
+    elif cmd in ("/cmds","/commands"): send(chat_id,panel_text(),panel_kb())
+    elif cmd in ("/check","/chk"): animated_check(chat_id,u["id"])
+    elif cmd in ("/me","/account"): account(chat_id,u["id"])
+    elif cmd=="/credits":
+        r=get_user(u["id"]); send(chat_id,f"💰 <b>CREDITS</b>\n\nAvailable: <b>{r['credits']}</b>\nPlan: <b>{r['plan']}</b>\n\n1 Sandbox Test = 1 credit.",back_kb())
+    elif cmd=="/premium": send(chat_id,"💎 <b>PREMIUM</b>\n\n⚡ Sandbox ilimitado\n🚀 Prioridad\n📊 Estadísticas avanzadas\n\nContacta al owner para activación.",back_kb())
+    elif cmd=="/gateways": send(chat_id,f"⚡ <b>GATEWAYS</b>\n\nAvailable: <b>{GATEWAYS}</b>\nStatus: 🟢 Online\nMode: Sandbox",back_kb())
+    elif cmd=="/tools": send(chat_id,f"⚙ <b>TOOLS</b>\n\nAvailable: <b>{TOOLS}</b>\n🧪 Sandbox Analyzer\n📊 Statistics\n👤 Account\n💰 Credits\n💎 Premium",back_kb())
+    elif cmd=="/refs": send(chat_id,"📚 <b>REFERENCES</b>\n\nBill Cypher Chk\nTelegram Bot API\nSandbox Documentation",back_kb())
+    elif cmd=="/updates": send(chat_id,f"📢 <b>UPDATES</b>\n\nVersion: <b>{VERSION}</b>\n🟢 Core\n🟢 Sandbox\n🟢 Credits\n🟢 Premium",back_kb())
+    elif cmd=="/diamond": diamond(chat_id,u["id"])
+    elif cmd=="/stats": stats(chat_id,u["id"])
+    elif cmd=="/addcredit": addcredit(chat_id,u["id"],args)
+    elif cmd=="/premiumadd": prem(chat_id,u["id"],args,True)
+    elif cmd=="/premiumoff": prem(chat_id,u["id"],args,False)
+    else: send(chat_id,"❓ Comando no reconocido. Usa /cmds.",panel_kb())
+
+
+def diamond(chat_id,uid):
+    if uid!=ADMIN_ID: send(chat_id,"⛔ Access denied.",back_kb()); return
+    send(chat_id,"💠 <b>DIAMOND OWNER PANEL</b>\n━━━━━━━━━━━━━━━━━━━━\n\n👑 Owner: <b>ACTIVE</b>\n🟢 Bot: <b>ONLINE</b>\n🧪 Sandbox: <b>ONLINE</b>\n\nUse /stats, /addcredit, /premiumadd or /premiumoff.",back_kb())
+
+
+def stats(chat_id,uid):
+    if uid!=ADMIN_ID: send(chat_id,"⛔ Access denied."); return
+    with DB_LOCK:
+        c=db(); users=c.execute("SELECT COUNT(*) n FROM users").fetchone()["n"]; premn=c.execute("SELECT COUNT(*) n FROM users WHERE plan='PREMIUM'").fetchone()["n"]; checks=c.execute("SELECT COALESCE(SUM(checks),0) n FROM users").fetchone()["n"]; c.close()
+    send(chat_id,f"📊 <b>STATISTICS</b>\n\n👥 Users: <b>{users}</b>\n💎 Premium: <b>{premn}</b>\n🧪 Checks: <b>{checks}</b>\n⚡ Gateways: <b>{GATEWAYS}</b>\n⚙ Tools: <b>{TOOLS}</b>",back_kb())
+
+
+def addcredit(chat_id,uid,args):
+    if uid!=ADMIN_ID: send(chat_id,"⛔ Access denied."); return
+    if len(args)!=2: send(chat_id,"Uso: <code>/addcredit ID CANTIDAD</code>"); return
+    try: target,amount=int(args[0]),int(args[1])
+    except: send(chat_id,"❌ Datos inválidos."); return
+    with DB_LOCK:
+        c=db(); c.execute("UPDATE users SET credits=credits+? WHERE id=?",(amount,target)); c.commit(); c.close()
+    send(chat_id,f"✅ Added <b>{amount}</b> credits to <code>{target}</code>.")
+
+
+def prem(chat_id,uid,args,on):
+    if uid!=ADMIN_ID: send(chat_id,"⛔ Access denied."); return
+    if len(args)!=1: send(chat_id,"Uso: <code>/premiumadd ID</code>" if on else "Uso: <code>/premiumoff ID</code>"); return
+    try: target=int(args[0])
+    except: send(chat_id,"❌ ID inválido."); return
+    with DB_LOCK:
+        c=db(); c.execute("UPDATE users SET plan=? WHERE id=?",("PREMIUM" if on else "FREE",target)); c.commit(); c.close()
+    send(chat_id,"💎 Premium activated." if on else "✅ Premium disabled.")
+
+
+def callbacks(q):
+    callback(q["id"]); m=q.get("message",{}); chat=m.get("chat",{}); u=q.get("from",{}); cid=chat.get("id"); uid=u.get("id"); data=q.get("data")
+    if not cid or not uid:return
+    ensure_user(u)
+    if data=="home": edit(cid,m["message_id"],home_text(u),home_kb(uid))
+    elif data=="panel": edit(cid,m["message_id"],panel_text(),panel_kb())
+    elif data=="check": animated_check(cid,uid)
+    elif data=="account": account(cid,uid)
+    elif data=="credits":
+        r=get_user(uid); edit(cid,m["message_id"],f"💰 <b>CREDITS</b>\n\nAvailable: <b>{r['credits']}</b>\nPlan: <b>{r['plan']}</b>\n\n1 Sandbox Test = 1 credit.",back_kb())
+    elif data=="premium": edit(cid,m["message_id"],"💎 <b>PREMIUM</b>\n\n⚡ Sandbox ilimitado\n🚀 Prioridad\n📊 Estadísticas avanzadas\n\nContacta al owner para activación.",back_kb())
+    elif data=="gateways": edit(cid,m["message_id"],f"⚡ <b>GATEWAYS</b>\n\nAvailable: <b>{GATEWAYS}</b>\nStatus: 🟢 Online\nMode: Sandbox",back_kb())
+    elif data=="tools": edit(cid,m["message_id"],f"⚙ <b>TOOLS</b>\n\nAvailable: <b>{TOOLS}</b>\n🧪 Sandbox Analyzer\n📊 Statistics\n👤 Account\n💰 Credits",back_kb())
+    elif data=="refs": edit(cid,m["message_id"],"📚 <b>REFERENCES</b>\n\nTelegram Bot API\nSandbox Documentation",back_kb())
+    elif data=="updates": edit(cid,m["message_id"],f"📢 <b>UPDATES</b>\n\nVersion: <b>{VERSION}</b>\n🟢 Core\n🟢 Sandbox\n🟢 Credits",back_kb())
+    elif data=="diamond": diamond(cid,uid)
+    elif data=="stats": stats(cid,uid)
+
+
+def process(update):
     try:
-        r=requests.post(f"{API}/{method}",data=data or {},timeout=25)
-        j=r.json()
-        print(f"[TG] {method}: {j}",flush=True)
-        return j
-    except Exception as e:
-        print(f"[TG] {method} ERROR: {e}",flush=True)
-        return {"ok":False}
+        if "message" in update:
+            m=update["message"]; u=m.get("from"); text=m.get("text","") or ""
+            if u and text.startswith("/"): handle_command(m["chat"]["id"],u,text)
+            elif u and text.lower() in ("menu","panel","cmds"): send(m["chat"]["id"],panel_text(),panel_kb())
+        elif "callback_query" in update: callbacks(update["callback_query"])
+    except Exception as e: print("[UPDATE ERROR]",e)
 
-def send(chat,text,k=None):
-    d={"chat_id":chat,"text":text,"parse_mode":"HTML"}
-    if k:d["reply_markup"]=k
-    return tg("sendMessage",d)
 
-def edit(chat,mid,text,k=None):
-    d={"chat_id":chat,"message_id":mid,"text":text,"parse_mode":"HTML"}
-    if k:d["reply_markup"]=k
-    return tg("editMessageText",d)
-
-def K(rows): return {"inline_keyboard":rows}
-
-def home(uid):
-    rows=[
-      [{"text":"🔎 CHECK SANDBOX","callback_data":"check"},{"text":"👤 MI CUENTA","callback_data":"account"}],
-      [{"text":"⭐ PREMIUM","callback_data":"premium"},{"text":"💳 CRÉDITOS","callback_data":"credits"}],
-      [{"text":"⚡ COMMAND CENTER","callback_data":"cmds"}],
-      [{"text":"📚 REFERENCES","callback_data":"refs"},{"text":"🟢 UPDATES","callback_data":"updates"}]]
-    if uid==ADMIN_ID: rows.append([{"text":"💎 DIAMOND OWNER","callback_data":"diamond"}])
-    return K(rows)
-
-def back(): return K([[{"text":"⬅️ BACK","callback_data":"cmds"}],[{"text":"🏠 HOME","callback_data":"home"}]])
-
-def cmds(): return K([
-    [{"text":"⚡ GATEWAYS","callback_data":"gateways"},{"text":"⚙ TOOLS","callback_data":"tools"}],
-    [{"text":"🔎 SANDBOX","callback_data":"check"},{"text":"👤 ACCOUNT","callback_data":"account"}],
-    [{"text":"📚 REFERENCES","callback_data":"refs"},{"text":"🟢 UPDATES","callback_data":"updates"}],
-    [{"text":"🏠 HOME","callback_data":"home"}]])
-
-def diamond(): return K([
-    [{"text":"➕ ADD CREDITS","callback_data":"dcredits"},{"text":"⭐ PREMIUM","callback_data":"dpremium"}],
-    [{"text":"📊 STATISTICS","callback_data":"dstats"},{"text":"🧪 SANDBOX","callback_data":"check"}],
-    [{"text":"🏠 HOME","callback_data":"home"}]])
-
-def welcome(uid,name):
-    u=get_user(uid)
-    return (f"━━━━━━━━━━━━━━━━━━━━\n♯ <b>BILL CYPHER CHK</b> 𐓏\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n\n👋 Hello <b>{name}</b>\n"
-            f"🔴 Mode: <b>SANDBOX</b>\n🟢 API Status: <b>ONLINE</b>\n"
-            f"⚡ Version: <b>2.1</b>\n💳 Credits: <b>{u['credits']}</b>\n"
-            f"⭐ Plan: <b>{u['plan']}</b>\n\n"
-            "Use /cmds to open the command panel.\n"
-            "━━━━━━━━━━━━━━━━━━━━")
-
-def command_page():
-    return ("━━━━━━━━━━━━━━━━━━━━\n⚡ <b>BILL CYPHER — COMMAND PANEL</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n\n📡 Gateways: <b>12</b>\n"
-            "⚙ Tools: <b>8</b>\n🟢 API Status: <b>ONLINE</b>\n"
-            "🧪 Engine: <b>SANDBOX</b>\n⚡ Version: <b>2.1</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━")
-
-def run_check(chat,uid):
-    c=db(); r=c.execute("SELECT credits FROM users WHERE id=?",(uid,)).fetchone()
-    if not r or r["credits"]<1:
-        c.close(); send(chat,"❌ <b>Sin créditos.</b>",home(uid)); return
-    c.execute("UPDATE users SET credits=credits-1,checks=checks+1 WHERE id=?",(uid,))
-    c.commit(); c.close()
-    x=send(chat,"🧪 <b>SANDBOX ANALYZER</b>\n━━━━━━━━━━━━━━━━━━━━\n⏳ Starting...\n━━━━━━━━━━━━━━━━━━━━")
-    mid=x.get("result",{}).get("message_id")
-    if not mid:return
-    for s in ["⏳ Starting engine...","⚡ Loading modules...","🔄 Running automatic test...","📊 Building report...","🟢 Complete!"]:
-        edit(chat,mid,"🧪 <b>SANDBOX ANALYZER</b>\n━━━━━━━━━━━━━━━━━━━━\n"+s+"\n━━━━━━━━━━━━━━━━━━━━")
-        time.sleep(.5)
-    edit(chat,mid,"━━━━━━━━━━━━━━━━━━━━\n🧪 <b>SANDBOX RESULT</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
-         "🆔 Test: <code>AUTO-TEST</code>\n📡 Engine: <b>Sandbox</b>\n"
-         "📊 Status: <b>TEST COMPLETE</b>\n🔐 Real card data: <b>NONE</b>\n"
-         "💳 Real authorization: <b>NO</b>\n\n"
-         "Análisis automático con datos sintéticos.\n━━━━━━━━━━━━━━━━━━━━",
-         K([[{"text":"🔄 RUN AGAIN","callback_data":"check"},{"text":"👤 ACCOUNT","callback_data":"account"}],
-            [{"text":"⚡ COMMAND CENTER","callback_data":"cmds"},{"text":"🏠 HOME","callback_data":"home"}]]))
-
-def handle(u):
-    if "callback_query" in u:
-        q=u["callback_query"]; tg("answerCallbackQuery",{"callback_query_id":q["id"]})
-        user=q["from"]; ensure_user(user); uid=user["id"]; chat=q["message"]["chat"]["id"]; d=q.get("data","")
-        if d=="home":send(chat,welcome(uid,user.get("first_name","User")),home(uid))
-        elif d=="cmds":send(chat,command_page(),cmds())
-        elif d=="check":run_check(chat,uid)
-        elif d=="account":
-            x=get_user(uid); send(chat,f"👤 <b>MY ACCOUNT</b>\n\n🆔 <code>{uid}</code>\n💳 Credits: <b>{x['credits']}</b>\n⭐ Plan: <b>{x['plan']}</b>\n🔎 Runs: <b>{x['checks']}</b>",back())
-        elif d=="credits":send(chat,f"💳 <b>CREDITS</b>\n\nDisponibles: <b>{get_user(uid)['credits']}</b>",back())
-        elif d=="premium":send(chat,"⭐ <b>PREMIUM</b>\n\nPlan premium para funciones del bot.",back())
-        elif d=="refs":send(chat,"📚 <b>REFERENCES</b>\n\nTelegram Bot API\nFlask\nSQLite\nSandbox Engine",back())
-        elif d=="updates":send(chat,"🟢 <b>UPDATES</b>\n\nv2.1 — Webhook + Command Panel + Sandbox.",back())
-        elif d=="gateways":send(chat,"⚡ <b>SANDBOX GATEWAYS</b>\n\n🟢 Alpha — ONLINE\n🟢 Beta — ONLINE\n🟡 Delta — TESTING\n\nMódulos simulados.",back())
-        elif d=="tools":send(chat,"⚙ <b>TOOLS</b>\n\n🔎 Sandbox Analyzer\n📊 Statistics\n🧪 Test Generator\n⏱ Latency Simulator",back())
-        elif d=="diamond" and uid==ADMIN_ID:
-            send(chat,"━━━━━━━━━━━━━━━━━━━━\n💎 <b>DIAMOND OWNER</b>\n━━━━━━━━━━━━━━━━━━━━\n\n👑 OWNER ACCESS\n🟢 API ONLINE\n🧪 SANDBOX ACTIVE\n🛡 ADMIN ACTIVE",diamond())
-        elif d=="dcredits" and uid==ADMIN_ID:send(chat,"➕ <b>ADD CREDITS</b>\n\n<code>/addcredit USER_ID AMOUNT</code>",diamond())
-        elif d=="dpremium" and uid==ADMIN_ID:send(chat,"⭐ <b>PREMIUM CONTROL</b>\n\n<code>/premiumadd USER_ID</code>\n<code>/premiumoff USER_ID</code>",diamond())
-        elif d=="dstats" and uid==ADMIN_ID:
-            c=db(); a=c.execute("SELECT COUNT(*) n FROM users").fetchone()["n"]; b=c.execute("SELECT COALESCE(SUM(checks),0) n FROM users").fetchone()["n"]; c.close()
-            send(chat,f"📊 <b>STATISTICS</b>\n\n👥 Users: <b>{a}</b>\n🔎 Runs: <b>{b}</b>",diamond())
-        return
-    m=u.get("message")
-    if not m:return
-    user=m.get("from",{}); chat=m.get("chat",{}).get("id")
-    if not user or not chat:return
-    ensure_user(user); uid=user["id"]; text=(m.get("text") or "").strip()
-    if not text:return
-    p=text.split(); cmd=p[0].split("@")[0].lower()
-    if cmd=="/start":send(chat,welcome(uid,user.get("first_name","User")),home(uid))
-    elif cmd in ("/cmds","/help"):send(chat,command_page(),cmds())
-    elif cmd in ("/me","/account"):
-        x=get_user(uid);send(chat,f"👤 <b>MY ACCOUNT</b>\n\n🆔 <code>{uid}</code>\n💳 Credits: <b>{x['credits']}</b>\n⭐ Plan: <b>{x['plan']}</b>\n🔎 Runs: <b>{x['checks']}</b>",back())
-    elif cmd=="/credits":send(chat,f"💳 <b>CREDITS</b>\n\nDisponibles: <b>{get_user(uid)['credits']}</b>",back())
-    elif cmd=="/premium":send(chat,"⭐ <b>PREMIUM</b>\n\nPlan premium para funciones del bot.",back())
-    elif cmd=="/check":run_check(chat,uid)
-    elif cmd=="/diamond":
-        if uid==ADMIN_ID: send(chat,"💎 <b>DIAMOND OWNER</b>\n\n👑 OWNER ACCESS\n🟢 API ONLINE\n🧪 SANDBOX ACTIVE",diamond())
-        else:send(chat,"⛔ Owner access only.")
-    elif cmd=="/addcredit" and uid==ADMIN_ID and len(p)==3:
+def poll():
+    if not BOT_TOKEN: print("[FATAL] BOT_TOKEN missing"); return
+    me=tg("getMe")
+    if not me or not me.get("ok"): print("[FATAL] Telegram token/API error"); return
+    print("[TG] Connected:","@"+me["result"].get("username","unknown"))
+    tg("deleteWebhook",{"drop_pending_updates":False})
+    print("[TG] Webhook cleared. Polling active.")
+    offset=None
+    while True:
         try:
-            target=int(p[1]); amount=int(p[2]); c=db(); c.execute("UPDATE users SET credits=credits+? WHERE id=?",(amount,target)); c.commit(); c.close(); send(chat,"✅ Créditos añadidos.")
-        except:send(chat,"Uso: /addcredit USER_ID AMOUNT")
-    elif cmd=="/premiumadd" and uid==ADMIN_ID and len(p)==2:
-        try:
-            target=int(p[1]);c=db();c.execute("UPDATE users SET plan='PREMIUM' WHERE id=?",(target,));c.commit();c.close();send(chat,"⭐ Premium activado.")
-        except:send(chat,"❌ USER_ID inválido.")
-    elif cmd=="/premiumoff" and uid==ADMIN_ID and len(p)==2:
-        try:
-            target=int(p[1]);c=db();c.execute("UPDATE users SET plan='FREE' WHERE id=?",(target,));c.commit();c.close();send(chat,"⭐ Premium desactivado.")
-        except:send(chat,"❌ USER_ID inválido.")
-    else:send(chat,"Usa /start o /cmds.",home(uid))
+            d={"timeout":25,"limit":100,"allowed_updates":["message","callback_query"]}
+            if offset is not None:d["offset"]=offset
+            r=tg("getUpdates",d)
+            if not r or not r.get("ok"): time.sleep(4); continue
+            for u in r.get("result",[]):
+                offset=u["update_id"]+1; process(u)
+        except Exception as e: print("[POLL ERROR]",e); time.sleep(5)
+
 
 @app.get("/")
-def root(): return "Bill Cypher Chk ONLINE",200
+def root(): return jsonify({"bot":"Bill Cypher Chk","version":VERSION,"status":"online","engine":"sandbox"})
 
 @app.get("/health")
-def health(): return {"status":"online","telegram":"webhook","sandbox":True},200
+def health(): return jsonify({"status":"ok"})
 
-@app.post("/telegram")
-def telegram():
-    u=request.get_json(silent=True)
-    print("[WEBHOOK] received:",bool(u),flush=True)
-    if u:
-        try: handle(u)
-        except Exception as e: print("[UPDATE ERROR]",repr(e),flush=True)
-    return "OK",200
 
-def setup():
+def main():
     init_db()
-    if not BOT_TOKEN:
-        print("FATAL: BOT_TOKEN is empty",flush=True); return
-    me=tg("getMe")
-    if not me.get("ok"):
-        print("FATAL: Telegram rejected BOT_TOKEN",flush=True); return
-    print("BOT:",me["result"].get("username"),flush=True)
-    if not PUBLIC_URL:
-        print("FATAL: RENDER_EXTERNAL_URL is empty",flush=True); return
-    url=PUBLIC_URL+"/telegram"
-    result=tg("setWebhook",{"url":url,"drop_pending_updates":"true","allowed_updates":'["message","callback_query"]'})
-    print("WEBHOOK:",url,flush=True)
-    print("WEBHOOK SET:",result,flush=True)
-    info=tg("getWebhookInfo")
-    print("WEBHOOK INFO:",info,flush=True)
+    threading.Thread(target=poll,daemon=True).start()
+    app.run(host="0.0.0.0",port=PORT,debug=False,use_reloader=False)
 
-if __name__=="__main__":
-    setup()
-    app.run(host="0.0.0.0",port=PORT)
+if __name__=="__main__": main()
