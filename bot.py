@@ -165,6 +165,6 @@ if response.status_code == 200:
     print("Request successful!")    
 if response.status_code == 400:
     print("Request failed!")
-    print(response.json()|
+    print(response.json())
 
 we
