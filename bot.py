@@ -11,9 +11,9 @@ def format_card_number(num: str) -> str:
     parts = [num[i:i+4] for i in range(0, len(num), 4)]
     return " ".join(parts)
 
-cvc = input("Enter your CVC: ")
-mm = input("Enter your expiration month (MM): ")
-yy = input("Enter your expiration year (YY): ")
+cvc = ("Enter your CVC: ")
+mm = ("Enter your expiration month (MM): ")
+yy = ("Enter your expiration year (YY): ")
 
 headers = {
     'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
