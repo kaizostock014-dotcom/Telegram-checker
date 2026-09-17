@@ -1,6 +1,6 @@
 import os
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")website = "https://api.telegram.org/bot".$botToken;
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 error_reporting(0);
 $update = file_get_contents('php://input');
 $update = json_decode($update, TRUE);
