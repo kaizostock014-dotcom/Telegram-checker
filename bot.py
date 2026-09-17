@@ -187,7 +187,7 @@ else:
     # 4. Petición segura con manejo de excepciones para evitar el cierre del bot
     try:
         response = requests.post(
-            'https://ezycourse.com...', # Reemplaza con tu endpoint real
+            'https://ezycourse.com', # Reemplaza con tu endpoint real
             headers=headers,
             json=json_data,
             timeout=15 # Evita que el bot se quede colgado indefinidamente
