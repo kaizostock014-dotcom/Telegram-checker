@@ -160,11 +160,47 @@ response = requests.post(
     json=json_data,
 )
 
-print(response.json())
-if response.status_code == 200:
-    print("Request successful!")    
-if response.status_code == 400:
-    print("Request failed!")
-    print(response.json())
+import requests
+
+# 1. Asegúrate de capturar el token real. No uses la palabra 'id' como variable.
+# Este valor debe ser un token válido (Ejemplo: 'pm_1N23456... o 'tok_1N23456...')
+stripe_token = "AQUÍ_VA_EL_TOKEN_REAL_DE_STRIPE" 
+
+# Validación preventiva: Si el token está vacío o no es un string válido, frena el flujo antes de enviar
+if not stripe_token or stripe_token == "None" or len(stripe_token) < 5:
+    print("❌ Error local: El token de Stripe es inválido o está vacío. Deteniendo envío.")
+    # Si es un bot de Telegram, aquí usarías: await update.message.reply_text("...")
+else:
+    # 2. Encabezados necesarios para EzyCourse
+    headers = {
+        'Authorization': 'Bearer TU_API_TOKEN_DE_EZYCOURSE',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+
+    # 3. Estructura de datos limpia (Sin la 'f' y usando la variable correcta)
+    json_data = {
+        'stripe_payment_method_uuid': str(stripe_token),
+        'is_trial': True,
+    }
+
+    # 4. Petición segura con manejo de excepciones para evitar el cierre del bot
+    try:
+        response = requests.post(
+            'https://ezycourse.com...', # Reemplaza con tu endpoint real
+            headers=headers,
+            json=json_data,
+            timeout=15 # Evita que el bot se quede colgado indefinidamente
+        )
+        
+        # Imprime la respuesta del servidor para auditoría
+        print(f"Código de estado: {response.status_code}")
+        print("Respuesta de la API:", response.json())
+        
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️ Error de red o conexión: {e}")
+    except Exception as e:
+        print(f"⚠️ Ocurrió un error inesperado en el bot: {e}")
+
 
 
