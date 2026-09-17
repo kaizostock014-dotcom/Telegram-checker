@@ -2,24 +2,8 @@ import os
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 error_reporting(0);
-$update = file_get_contents('php://input');
-$update = json_decode($update, TRUE);
-$print = print_r($update);
-$chatId = $update["message"]["chat"]["id"];
-$gId = $update["message"]["from"]["id"];
-$userId = $update["message"]["from"]["id"];
-$firstname = $update["message"]["from"]["first_name"];
-$lastname = $update["message"]["from"]["last_name"];
-$username = $update["message"]["from"]["username"];
-$message = $update["message"]["text"];
-$message_id = $update["message"]["message_id"];
-$premiums = file_get_contents('users.txt');
-$premium = explode("\n", $premiums);
-$group = file_get_contents('groups.txt');
-$groups = explode("\n", $group);
-if($userId == '1991559687') {
-$usernam = ''.shadowdemon_xd.'%0A [Owner]';
-}
+update = file_get_contents('php://input');
+
 elseif($userId == '1386134927') {
 $usernam = ''.mtchex.'%0A [Owner]';
 }
