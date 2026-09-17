@@ -17,7 +17,7 @@ yy = ("Enter your expiration year (YY): ")
 
 headers = {
     'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'accept-language': 'en-US,en;q=0.9',
+    'accept-language': 'eS-US,en;q=0.9',
     'priority': 'u=0, i',
     'referer': 'https://ezycourse.com/',
     'sec-ch-ua': '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
@@ -31,7 +31,7 @@ headers = {
     'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
     # 'cookie': '_gcl_au=1.1.984969927.1784905915; _fbp=fb.1.1784905915548.957180182637388509; ruccd=s%3AeyJtZXNzYWdlIjoiTlAiLCJwdXJwb3NlIjoicnVjY2QifQ.aeXzvLoJEjSPwyqj2x2QsFXk3taNThBZ76FIsO9nq4Q; XSRF-TOKEN=e%3A4cnpOglmEySih6d87XMYoZy4QXOkKQP7uGV1xXRuFqcibau4Obm1EXQX4g-kBzQz890JfnDOzE7QBg82ScUTZyImlUucEV-0BwSA2pBThhs.VWQ5d1RCVE82ajd1T1FwcQ.1cKzd2nDRcJKjtWcMRdxqsqNvT7L2_mwjfbtTrZGLC4; swuid=s%3AeyJtZXNzYWdlIjoiY21yejJ3cHNzOXB3ajZ2cXJoNWRkMGJpZyIsInB1cnBvc2UiOiJzd3VpZCJ9.s_ZACgWIAQo3N2UoltoocYEDzj17ZFUZgVJ0B3sv8P4; crisp-client%2Fsession%2Fa09eea92-f4ec-4c30-86be-838a16c1c7aa=session_6054a039-58bd-4791-969d-568ca28e49cd; crisp-client%2Fsocket%2Fa09eea92-f4ec-4c30-86be-838a16c1c7aa=1; cookieyes-consent=consentid:SkV1T28zMnZtNlZzQkNmUDFxNTlDU294eDNUWVBHMFY,consent:yes,action:yes,necessary:yes,functional:yes,analytics:yes,performance:yes,advertisement:yes,other:yes',
 }
-webbrowser.open(https://t.me/billcypherchtbot)
+webbrowser.open("https://t.me/billcypherchtbot")
 params = {
     'plan': 'pro',
     'interval': 'month',
@@ -47,10 +47,10 @@ response = requests.get('https://ezycourse.com/signup', params=params,  headers=
 if response.status_code == 200:
     print("Request successful!")
 
-webbrowser.open("t.me/diwazz")
+webbrowser.open("https://t.me/billcypherchtbot")
 headers = {
     'accept': 'application/json',
-    'accept-language': 'en-US,en;q=0.9',
+    'accept-language': 'eS-US,en;q=0.9',
     'content-type': 'application/x-www-form-urlencoded',
     'origin': 'https://js.stripe.com',
     'priority': 'u=1, i',
