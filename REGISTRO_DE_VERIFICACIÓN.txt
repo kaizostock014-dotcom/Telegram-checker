@@ -1,0 +1,134 @@
+--- FETCHING LIVE MARKET STATUS ---
+{
+  "isOpen": "CLOSE",
+  "asOf": "2026-04-27T15:00:00",
+  "id": 80
+}
+
+--- FETCHING LIVE TODAY'S PRICE (TOP 5) ---
+Total records found: 269
+[
+  {
+    "securityId": "2790",
+    "securityName": "Aarambha Chautari Laghubitta Bittiya Sanstha Limited",
+    "symbol": "ACLBSL",
+    "indexId": 58,
+    "totalTradeQuantity": 1703,
+    "lastTradedPrice": 979.9,
+    "percentageChange": 0.605749487,
+    "previousClose": 974.0,
+    "closePrice": null
+  },
+  {
+    "securityId": "397",
+    "securityName": "Agricultural Development Bank Limited",
+    "symbol": "ADBL",
+    "indexId": 58,
+    "totalTradeQuantity": 20187,
+    "lastTradedPrice": 316.0,
+    "percentageChange": 0.958466454,
+    "previousClose": 313.0,
+    "closePrice": null
+  },
+  {
+    "securityId": "9150",
+    "securityName": "Asian Hydropower Limited",
+    "symbol": "AHL",
+    "indexId": 58,
+    "totalTradeQuantity": 8990,
+    "lastTradedPrice": 526.0,
+    "percentageChange": -0.473036897,
+    "previousClose": 528.5,
+    "closePrice": null
+  },
+  {
+    "securityId": "360",
+    "securityName": "Arun Valley Hydropower Development Co. Ltd.",
+    "symbol": "AHPC",
+    "indexId": 58,
+    "totalTradeQuantity": 88438,
+    "lastTradedPrice": 283.0,
+    "percentageChange": 1.071428571,
+    "previousClose": 280.0,
+    "closePrice": null
+  },
+  {
+    "securityId": "2788",
+    "securityName": "Ankhu Khola Jalvidhyut Company Ltd",
+    "symbol": "AKJCL",
+    "indexId": 58,
+    "totalTradeQuantity": 665750,
+    "lastTradedPrice": 396.7,
+    "percentageChange": 1.744036933,
+    "previousClose": 389.9,
+    "closePrice": null
+  }
+]
+
+--- FETCHING LIVE NEPSE INDEX ---
+[
+  {
+    "id": 57,
+    "auditId": null,
+    "exchangeIndexId": null,
+    "generatedTime": "2026-04-27T15:20:10.75",
+    "index": "Sensitive Index",
+    "close": 468.08,
+    "high": 471.2095,
+    "low": 467.9646,
+    "previousClose": 469.7201,
+    "change": 1.64,
+    "perChange": 0.35,
+    "fiftyTwoWeekHigh": 518.6,
+    "fiftyTwoWeekLow": 435.29,
+    "currentValue": 469.72
+  },
+  {
+    "id": 58,
+    "auditId": null,
+    "exchangeIndexId": null,
+    "generatedTime": "2026-04-27T15:20:10.753",
+    "index": "NEPSE Index",
+    "close": 2788.7,
+    "high": 2806.96,
+    "low": 2789.2219,
+    "previousClose": 2796.4332,
+    "change": 7.73,
+    "perChange": 0.27,
+    "fiftyTwoWeekHigh": 3002.08,
+    "fiftyTwoWeekLow": 2487.18,
+    "currentValue": 2796.43
+  },
+  {
+    "id": 62,
+    "auditId": null,
+    "exchangeIndexId": null,
+    "generatedTime": "2026-04-27T15:20:10.753",
+    "index": "Float Index",
+    "close": 188.37,
+    "high": 189.5686,
+    "low": 188.3818,
+    "previousClose": 189.1339,
+    "change": 0.75,
+    "perChange": 0.4,
+    "fiftyTwoWeekHigh": 206.26,
+    "fiftyTwoWeekLow": 170.58,
+    "currentValue": 189.13
+  },
+  {
+    "id": 63,
+    "auditId": null,
+    "exchangeIndexId": null,
+    "generatedTime": "2026-04-27T15:20:10.753",
+    "index": "Sensitive Float Index",
+    "close": 158.11,
+    "high": 159.1048,
+    "low": 158.0078,
+    "previousClose": 158.7305,
+    "change": 0.61,
+    "perChange": 0.39,
+    "fiftyTwoWeekHigh": 177.31,
+    "fiftyTwoWeekLow": 147.61,
+    "currentValue": 158.73
+  }
+]
