@@ -1,3 +1,6 @@
-python-telegram-bot>=20.0
+fastapi
+uvicorn
+httpx[http2]
+pywasm
+tqdm
 requests
-
