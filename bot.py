@@ -1,4 +1,4 @@
-CHK BOT
+
 $botToken = "#"; // Enter ur bot token
 $website = "https://api.telegram.org/bot".$botToken;
 error_reporting(0);
