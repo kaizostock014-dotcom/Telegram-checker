@@ -162,9 +162,41 @@ response = requests.post(
 
 import requests
 
-# 1. Asegúrate de capturar el token real. No uses la palabra 'id' como variable.
-# Este valor debe ser un token válido (Ejemplo: 'pm_1N23456... o 'tok_1N23456...')
-stripe_token = "AQUÍ_VA_EL_TOKEN_REAL_DE_STRIPE" 
+# Reemplaza con tu URL real y final sin puntos suspensivos
+URL_EZYCOURSE = 'https://ezycourse.com' 
+
+try:
+    response = requests.post(
+        URL_EZYCOURSE,
+        headers=headers,
+        json=json_data,
+        timeout=15
+    )
+    
+    print(f"Código de estado del servidor: {response.status_code}")
+    
+    # 1. Validamos el tipo de contenido antes de usar .json()
+    content_type = response.headers.get('Content-Type', '')
+    
+    if 'application/json' in content_type:
+        # Si es un JSON válido, lo procesamos de forma segura
+        datos_respuesta = response.json()
+        print("Respuesta exitosa del servidor:", datos_respuesta)
+    else:
+        # Si el servidor devolvió HTML (un error), imprimimos el texto para ver qué pasó
+        print("⚠️ El servidor no devolvió un JSON. Devolvió texto o HTML bruto:")
+        print(response.text[:500]) # Muestra los primeros 500 caracteres del error
+        
+except requests.exceptions.RequestException as e:
+    # Captura errores de DNS, URLs mal formadas, caídas de red o timeouts
+    print(f"⚠️ Error de red o conexión física: {e}")
+except Exception as e:
+    # Captura cualquier otro fallo inesperado evitando que el bot se muera
+    print(f"⚠️ Error general controlado en el flujo: {e}")
+
+# El bot continuará ejecutándose aquí sin cerrarse inesperadamente
+print("El bot sigue vivo y escuchando nuevos comandos...")
+
 
 # Validación preventiva: Si el token está vacío o no es un string válido, frena el flujo antes de enviar
 if not stripe_token or stripe_token == "None" or len(stripe_token) < 5:
