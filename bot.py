@@ -4,7 +4,7 @@ API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 error_reporting(0);
 update = file_get_contents('php://input');
 
-elseif userId == '5320997298'
+elif userId == '5320997298'
 $usernam = ''.mtchex.'%0A [Owner]';
 }
 else {
